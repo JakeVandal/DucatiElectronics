@@ -33,7 +33,7 @@ static int currentPage = 0; // 0 = tachometer, 1 = RFID writer
 
 // Cached values (updated by main)
 static int cachedRPM = 0;
-static float cachedGPSSpeed = 0.0f; // km/h
+static float cachedGPSSpeed = 0.0f; // Mph
 static float cachedTempF = 0.0f;
 
 // RFID write state
@@ -71,7 +71,7 @@ void TFT_begin()
 }
 
 // Update UI values; call frequently from main loop
-void TFT_update(int rpm, float gpsSpeedMph, float tempC)
+void TFT_update(int rpm, float gpsSpeedMph, float tempF)
 {
 	cachedRPM = rpm;
 	cachedGPSSpeed = gpsSpeedMph;
@@ -173,7 +173,7 @@ void TFT_onTouch(int x, int y)
 }
 
 // Internal drawing functions ------------------------------------------------
-void drawTachometer(int rpm, float speedKmh, float tempC)
+void drawTachometer(int rpm, float speedMph, float tempF)
 {
 	tft.fillScreen(ILI9341_BLACK);
 
@@ -187,7 +187,7 @@ void drawTachometer(int rpm, float speedKmh, float tempC)
 	tft.setTextSize(2);
 	tft.setCursor(10, 40);
 	tft.print("Speed: ");
-	tft.print(speedKmh, 1);
+	tft.print(speedMph, 1);
 							int rawX = ((xh & 0x0F) << 8) | xl;
 							int rawY = ((yh & 0x0F) << 8) | yl;
 							// Map raw touch coords to screen coordinates. FT6336U is 12-bit.
