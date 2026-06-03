@@ -3,23 +3,38 @@ This is the main file for the Ducati Electronics project. It initializes the RFI
 and contains the main loop for reading RFID tags and controlling the LEDs based on the tag's status. The program uses 
 the MFRC522 library for interfacing with the RFID reader and SPI communication.
 
-Last Updated: 5/23/2026
+Last Updated: 5/24/2026
 
 Version: 1.0
 
 */
 
-#include <iostream>
-#include <string>
 #include <MFRC522.h>
 #include <SPI.h>
-#include "pinMap.h"
+#include "../lib/pinMap.h"
 #include "piccWriter.h"
 #include <Arduino.h>
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+#include <ILI9341_t3n.h>
 
 // Initialize the RFID reader
-MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance.
+MFRC522 mfrc522(CS_PIN, RST_PIN);   // Create MFRC522 instance.
 MFRC522::MIFARE_Key key;
+
+// Initialize GPS
+TinyGPSPlus gps;
+static const uint32_t GPSBaud = 9600;
+int LatitudeCurrent = 0;
+int LongitudeCurrent = 0;
+
+int TimeCurrent = 0;
+
+int SpeedCurrent = 0;
+int SpeedPrevious = 0;
+
+SoftwareSerial ss(RXPin, TXPin);
+
 
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
@@ -67,10 +82,32 @@ boolean readPICC() {
   return cardMatch;
 }
 
+// GPS data processing function
+void processGPSData() {
+  while (ss.available() > 0)
+  gps.encode(ss.read());
+
+  if (gps.location.isUpdated())
+    if (gps.location.isValid()) {
+      LatitudeCurrent = gps.location.rawLat().billionths;
+      LongitudeCurrent = gps.location.rawLng().billionths;
+      TimeCurrent = gps.time.value();
+
+      SpeedCurrent = gps.speed.mph();
+      if ((SpeedCurrent < (1.2 * SpeedPrevious)) && (SpeedCurrent != 0)) {
+        SpeedPrevious = SpeedCurrent;
+      }
+    }
+  }
+
+// 
+
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
   while (!Serial); // Wait for serial port to connect. Needed for native USB
+
+  ss.begin(GPSBaud);
 
   // Initialize SPI communication
   SPI.begin();      // Init SPI bus
