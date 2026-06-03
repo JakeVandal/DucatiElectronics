@@ -35,6 +35,8 @@ static int currentPage = 0; // 0 = tachometer, 1 = RFID writer
 static int cachedRPM = 0;
 static float cachedGPSSpeed = 0.0f; // Mph
 static float cachedTempF = 0.0f;
+static float cachedFuelLevel = 0.0f; // percent
+static int cachedGear = 0;
 
 // RFID write state
 static bool writeRequested = false;
@@ -47,7 +49,7 @@ static const int TACH_RADIUS = 120;
 static const int MAX_RPM = 11000; // 11 kRPM
 
 // Helper forward declarations
-void drawTachometer(int rpm, float speedMph, float tempF);
+void drawTachometer(int rpm, float speedMph, float tempF, float fuelLevel, int gear);
 void drawRFIDWriterPage();
 void drawWriteButton(bool pressed);
 
@@ -67,17 +69,19 @@ void TFT_begin()
 	pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(TOUCH_INT_PIN), touchISR, FALLING);
 	// initial draw
-	drawTachometer(cachedRPM, cachedGPSSpeed, cachedTempF);
+	drawTachometer(cachedRPM, cachedGPSSpeed, cachedTempF, cachedFuelLevel, cachedGear);
 }
 
 // Update UI values; call frequently from main loop
-void TFT_update(int rpm, float gpsSpeedMph, float tempF)
+void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int gear)
 {
 	cachedRPM = rpm;
 	cachedGPSSpeed = gpsSpeedMph;
 	cachedTempF = tempF;
+	cachedFuelLevel = fuelLevel;
+	cachedGear = gear;
 	if (currentPage == 0) {
-		drawTachometer(cachedRPM, cachedGPSSpeed, cachedTempF);
+		drawTachometer(cachedRPM, cachedGPSSpeed, cachedTempF, cachedFuelLevel, cachedGear);
 	} else {
 		drawRFIDWriterPage();
 	}
@@ -173,7 +177,7 @@ void TFT_onTouch(int x, int y)
 }
 
 // Internal drawing functions ------------------------------------------------
-void drawTachometer(int rpm, float speedMph, float tempF)
+void drawTachometer(int rpm, float speedMph, float tempF, float fuelLevel, int gear)
 {
 	tft.fillScreen(ILI9341_BLACK);
 
@@ -183,17 +187,44 @@ void drawTachometer(int rpm, float speedMph, float tempF)
 	tft.setCursor(10, 10);
 	tft.print("Tachometer");
 
-	// Draw GPS speed and temperature
+	// Draw GPS speed, temperature, fuel, and gear
 	tft.setTextSize(2);
 	tft.setCursor(10, 40);
 	tft.print("Speed: ");
 	tft.print(speedMph, 1);
-							int rawX = ((xh & 0x0F) << 8) | xl;
-							int rawY = ((yh & 0x0F) << 8) | yl;
-							// Map raw touch coords to screen coordinates. FT6336U is 12-bit.
-							int sx = map(rawX, 0, 4095, 0, tft.width());
-							int sy = map(rawY, 0, 4095, 0, tft.height());
-							TFT_onTouch(sx, sy);
+	tft.print(" mph");
+
+	tft.setCursor(10, 64);
+	tft.print("Temp:  ");
+	tft.print(tempF, 1);
+	tft.print(" F");
+
+	tft.setCursor(10, 88);
+	tft.print("Fuel:  ");
+	tft.print(fuelLevel, 0);
+	tft.print(" %");
+
+	tft.setCursor(10, 112);
+	tft.print("Gear:  ");
+	if (gear == 0) {
+		tft.print("N");
+	} else {
+		tft.print(gear);
+	}
+
+	// Fuel bar
+	int barX = 10;
+	int barY = 140;
+	int barW = 220;
+	int barH = 16;
+	tft.drawRect(barX, barY, barW, barH, ILI9341_WHITE);
+	int fillW = constrain((int)(barW * (fuelLevel / 100.0f)), 0, barW);
+	tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, ILI9341_GREEN);
+	tft.setTextSize(1);
+	tft.setCursor(barX + 4, barY + 2);
+	tft.setTextColor(ILI9341_BLACK);
+	tft.print("Fuel Level");
+	tft.setTextColor(ILI9341_WHITE);
 
 	// Draw gauge background (tick marks)
 	for (int i = 0; i <= 11; i++) {

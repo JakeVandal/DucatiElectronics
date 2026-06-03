@@ -7,7 +7,7 @@
 #include <Arduino.h>
 
 void TFT_begin();
-void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, float Gear);
+void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int gear);
 void TFT_onTouch(int x, int y);
 void TFT_nextPage();
 void TFT_prevPage();

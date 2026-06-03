@@ -30,6 +30,10 @@ Last Updated: 6/2/2026
 // Tachometer input
 #define TACH_PIN 23            // Pulse input for RPM measurement (attach to tach sensor)
 
+// Motorcycle analog inputs
+#define FUEL_VOLTAGE_PIN A0    // Fuel-level sensor input
+#define GEAR_VOLTAGE_PIN A1    // Gear position sensor input
+
 // GT-U7 GPS Module - UART5
 #define GPS_RX_PIN 21          // UART5 RX (receives GPS data)
 #define GPS_TX_PIN 20          // UART5 TX (not typically used for GPS)
