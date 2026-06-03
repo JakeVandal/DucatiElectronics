@@ -3,7 +3,7 @@ This is the main file for the Ducati Electronics project. It initializes the RFI
 and contains the main loop for reading RFID tags and controlling the LEDs based on the tag's status. The program uses 
 the MFRC522 library for interfacing with the RFID reader and SPI communication.
 
-Last Updated: 5/24/2026
+Last Updated: 6/2/2026
 
 Version: 1.0
 
@@ -15,11 +15,11 @@ Version: 1.0
 #include "piccWriter.h"
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
-#include <SoftwareSerial.h>
-#include <ILI9341_t3n.h>
+#include "TFTDisplay.h"
+#include <DHT.h>
 
 // Initialize the RFID reader
-MFRC522 mfrc522(CS_PIN, RST_PIN);   // Create MFRC522 instance.
+MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
 MFRC522::MIFARE_Key key;
 
 // Initialize GPS
@@ -30,14 +30,26 @@ int LongitudeCurrent = 0;
 
 int TimeCurrent = 0;
 
-int SpeedCurrent = 0;
-int SpeedPrevious = 0;
+float GPSSpeedMph = 0.0f;
 
-SoftwareSerial ss(RXPin, TXPin);
+// DHT sensor
+#define DHTTYPE DHT11
+DHT dht(DHT11_PIN, DHTTYPE);
 
+// RPM placeholder (wire your tach input to update this value)
+int RPMValue = 0;
+float CurrentTempF = 0.0f;
 
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
+
+// Tachometer pulse counting
+volatile unsigned long tachPulseCount = 0;
+
+// ISR for tachometer pulse
+void IRAM_ATTR tachISR() {
+  tachPulseCount++;
+}
 
 // ISR for IRQ pin interrupt
 void irqHandler() {
@@ -82,36 +94,22 @@ boolean readPICC() {
   return cardMatch;
 }
 
-// GPS data processing function
-void processGPSData() {
-  while (ss.available() > 0)
-  gps.encode(ss.read());
 
-  if (gps.location.isUpdated())
-    if (gps.location.isValid()) {
-      LatitudeCurrent = gps.location.rawLat().billionths;
-      LongitudeCurrent = gps.location.rawLng().billionths;
-      TimeCurrent = gps.time.value();
-
-      SpeedCurrent = gps.speed.mph();
-      if ((SpeedCurrent < (1.2 * SpeedPrevious)) && (SpeedCurrent != 0)) {
-        SpeedPrevious = SpeedCurrent;
-      }
-    }
-  }
-
-// 
 
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
   while (!Serial); // Wait for serial port to connect. Needed for native USB
 
-  ss.begin(GPSBaud);
+  Serial5.begin(GPSBaud);
 
   // Initialize SPI communication
   SPI.begin();      // Init SPI bus
   mfrc522.PCD_Init();   // Init MFRC522 card
+
+  // Initialize TFT and sensors
+  dht.begin();
+  TFT_begin();
 
   // Set the key for authentication (default key for MIFARE cards)
   for (byte i = 0; i < 6; i++) {
@@ -119,14 +117,66 @@ void setup() {
   }
 
   // Attach interrupt handler to IRQ pin
-  pinMode(IRQ_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(IRQ_PIN), irqHandler, FALLING);
+  pinMode(MFRC522_IRQ_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(MFRC522_IRQ_PIN), irqHandler, FALLING);
+
+  // Tachometer input
+  pinMode(TACH_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TACH_PIN), tachISR, RISING);
 
   Serial.println("RFID reader initialized. Waiting for a card...");
 }
 
 void loop() {
-  // Call readPICC to check for card
+  // Process GPS serial data
+  while (Serial5.available() > 0) {
+    gps.encode(Serial5.read());
+  }
+
+  if (gps.location.isUpdated() && gps.location.isValid()) {
+    LatitudeCurrent = gps.location.rawLat().billionths;
+    LongitudeCurrent = gps.location.rawLng().billionths;
+    TimeCurrent = gps.time.value();
+  }
+  // Update GPS speed (Mph)
+  if (gps.speed.isValid()) {
+    GPSSpeedMph = gps.speed.mph();
+  }
+
+  // Read DHT11 periodically (simple, non-blocking delay)
+  static unsigned long lastDHT = 0;
+  if (millis() - lastDHT > 2000) {
+    lastDHT = millis();
+    float t = dht.readTemperature();
+    if (!isnan(t)) {
+      // update cached temp
+      CurrentTempF = t;
+    }
+  }
+
+  // Update TFT with RPM, GPS speed, and temp
+  // Update RPM once per second based on pulse count. Assumes 1 pulse per rev.
+  static unsigned long lastRPMMillis = 0;
+  if (millis() - lastRPMMillis >= 1000) {
+    noInterrupts();
+    unsigned long pulses = tachPulseCount;
+    tachPulseCount = 0;
+    interrupts();
+    RPMValue = pulses * 60; // pulses per second -> RPM
+    lastRPMMillis += 1000;
+  }
+
+  TFT_update(RPMValue, GPSSpeedMph, CurrentTempF);
+
+  // Handle touch-triggered RFID write requests
+  if (TFT_takeWriteRequest()) {
+    Serial.println("TFT requested RFID write");
+    // Example: write 0x23 to card
+    boolean result = writePICC(0x23);
+    TFT_setWriteSuccess(result);
+  }
+
+  // Call readPICC to check for card (interrupt-driven)
   boolean cardFound = readPICC();
 
   if (cardFound) {

@@ -1,29 +1,51 @@
 /*
-This is the pinmap for the dedicated hardware. It defines the pin numbers for the various components used 
-in the project, such as the RFID reader, LEDs, and buttons. This file is included in the main program
- to ensure that all components are correctly connected to the microcontroller.
+Teensy 4.1 Pinmap
+Defines pin assignments for all hardware modules:
+- MFRC522 RFID Reader -> SPI0
+- GY-521 IMU (MPU6050) -> I2C0
+- DHT11 Temperature/Humidity -> One-Wire
+- GT-U7 GPS Module -> UART5
+- TFT Display -> SPI1
+- TFT Capacitive Touch Controller -> I2C1
 
-Last Updated: 5/23/2026
-*/ 
+Last Updated: 6/2/2026
+*/
 
-// Pin definitions for the RFID reader with SPI communication
-#define CS_PIN 10 // Chip Select pin for the RFID reader
-#define RST_PIN 9 // Reset pin for the RFID reader
-#define MOSI_PIN 11 // Master Out Slave In pin for SPI communication for the RFID reader
-#define MISO_PIN 12 // Master In Slave Out pin for SPI communication for the RFID reader
-#define SCK_PIN 13 // Serial Clock pin for SPI communication for the RFID reader
-#define IRQ_PIN 2 // Interrupt pin for the RFID reader
+// MFRC522 RFID Reader - SPI0
+#define MFRC522_CS_PIN 10      // Chip Select for MFRC522 (SPI0 CS)
+#define MFRC522_RST_PIN 9      // Reset pin for MFRC522
+#define MFRC522_IRQ_PIN 2      // Interrupt pin for MFRC522
+#define MFRC522_MOSI 11           // SPI0 MOSI pin
+#define MFRC522_MISO 12           // SPI0 MISO pin
+#define MFRC522_SCK 13            // SPI0 SCK pin
 
-// Pin definitions for the GPS
-#define RXPin 3 // GPS RX pin
-#define TXPin 4 // GPS TX pin
+// GY-521 IMU (MPU6050) - I2C0
+#define GY521_SDA 18           // I2C0 SDA (Data)
+#define GY521_SCL 19           // I2C0 SCL (Clock)
+#define GY521_INT_PIN 3        // Interrupt pin for GY-521
 
-// Pin definitions for the TFT Display
-#define TFT_CS 5 // Chip Select pin for the TFT display
-#define TFT_DC 6 // Data/Command pin for the TFT display
-#define TFT_RST 7 // Reset pin for the TFT display
-#define TFT_MOSI 11 // Master Out Slave In pin for SPI communication for the TFT display
-#define TFT_SCK 13 // Serial Clock pin for SPI communication for the TFT display
-#define TFT_MISO 12 // Master In Slave Out pin for SPI communication for the TFT display
-#define TFT_BACKLIGHT 8 // Backlight control pin for the TFT display
-#define TFT_LED 8 // LED control pin for the TFT display
+// DHT11 Sensor - One-Wire
+#define DHT11_PIN 22           // One-Wire data pin for DHT11
+
+// Tachometer input
+#define TACH_PIN 23            // Pulse input for RPM measurement (attach to tach sensor)
+
+// GT-U7 GPS Module - UART5
+#define GPS_RX_PIN 21          // UART5 RX (receives GPS data)
+#define GPS_TX_PIN 20          // UART5 TX (not typically used for GPS)
+#define GPS_UART_NUM Serial5   // Serial5 (UART5)
+
+// TFT Display - SPI1
+#define TFT_CS_PIN 0           // Chip Select for TFT (SPI1 CS)
+#define TFT_DC_PIN 6           // Data/Command pin
+#define TFT_RST_PIN 7          // Reset pin
+#define TFT_BACKLIGHT_PIN 8    // Backlight control (PWM capable)
+#define TFT_MOSI 26           // SPI1 MOSI pin
+#define TFT_MISO 1            // SPI1 MISO pin
+#define TFT_SCK 27            // SPI1 SCK pin
+
+// TFT Capacitive Touch - I2C1
+#define TOUCH_SDA 17           // I2C1 SDA (Data)
+#define TOUCH_SCL 16           // I2C1 SCL (Clock)
+#define TOUCH_INT_PIN 4        // Interrupt pin for touch controller
+#define TOUCH_RST_PIN 5        // Reset pin for touch controller (optional)

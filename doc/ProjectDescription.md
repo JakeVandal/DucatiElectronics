@@ -7,7 +7,7 @@ Features:
 -> Teensy 4.1 Microcontroller
 -> MFRC522 Based Keyless Ignition Access System
     -Read/Write to card/fob via either laptop or through display
--> GT-U7 GPS based speedometer
+-> GT-U7 GPS based speedometer 
 -> DHT-11 based temperature and humdity sensing
 -> ST7796S based 4" capacitive touch display
     -Displays RPM, speed, temperature, humidity?, lean angle, gear position
@@ -15,3 +15,11 @@ Features:
     -Welcome page on startup
 -> RPM through wiring harness
 -> GY-521 based accelerometer data
+
+Communications:
+MFRC522 -> SPI (SPI0)
+GY-521 -> I2C (I2C0)
+DHT11 -> One-Wire
+GT-U7 -> UART (UART5)
+TFT Display -> SPI (SPI1)
+TFT Capacitive Touch -> I2C (I2C1)
