@@ -53,3 +53,6 @@ Last Updated: 6/2/2026
 #define TOUCH_SCL 16           // I2C1 SCL (Clock)
 #define TOUCH_INT_PIN 4        // Interrupt pin for touch controller
 #define TOUCH_RST_PIN 5        // Reset pin for touch controller (optional)
+
+// Ignition Control Pin
+#define IGNITION_CONTROL_PIN 24 // Digital output to control ignition relay

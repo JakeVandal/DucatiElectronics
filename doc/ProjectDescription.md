@@ -15,6 +15,8 @@ Features:
     -Welcome page on startup
 -> RPM through wiring harness
 -> GY-521 based accelerometer data
+-> Voltage based gear indicator
+-> Voltage based fuel level gauge
 
 Communications:
 MFRC522 -> SPI (SPI0)

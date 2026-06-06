@@ -29,10 +29,9 @@ int LatitudeCurrent = 0;
 int LongitudeCurrent = 0;
 
 int TimeCurrent = 0;
-
 float GPSSpeedMph = 0.0f;
 
-// DHT sensor
+// DHT11 Temperature and Humidity Sensor
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
 
@@ -48,8 +47,18 @@ volatile boolean irqFlag = false;
 // Tachometer pulse counting
 volatile unsigned long tachPulseCount = 0;
 
+// Bike ignition status
+volatile boolean bikeIgnitionOn = false;
+ 
+// Ignition start/watchdog timer: if ignition is enabled but engine
+// doesn't reach RPM threshold within this timeout, cut ignition.
+unsigned long ignitionOnMillis = 0;
+bool ignitionTimerActive = false;
+const unsigned long IGNITION_RPM_TIMEOUT_MS = 60000; // 60 seconds
+const int RPM_THRESHOLD = 300;
+
 // ISR for tachometer pulse
-void IRAM_ATTR tachISR() {
+void tachISR() {
   tachPulseCount++;
 }
 
@@ -121,7 +130,6 @@ boolean readPICC() {
 }
 
 
-
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
@@ -167,6 +175,7 @@ void loop() {
     LongitudeCurrent = gps.location.rawLng().billionths;
     TimeCurrent = gps.time.value();
   }
+
   // Update GPS speed (Mph)
   if (gps.speed.isValid()) {
     GPSSpeedMph = gps.speed.mph();
@@ -174,7 +183,7 @@ void loop() {
 
   // Read DHT11 periodically (simple, non-blocking delay)
   static unsigned long lastDHT = 0;
-  if (millis() - lastDHT > 2000) {
+  if (millis() - lastDHT > 5000) {
     lastDHT = millis();
     float tempC = dht.readTemperature();
     if (!isnan(tempC)) {
@@ -214,8 +223,39 @@ void loop() {
   // Call readPICC to check for card (interrupt-driven)
   boolean cardFound = readPICC();
 
-  if (cardFound) {
+  // Bike turn on scenario: if card with 0x23 is detected while ignition is off, enable ignition and start watchdog timer
+  if (cardFound && !bikeIgnitionOn) {
     Serial.println("Card with 0x23 detected!");
-    // Add code here to control LEDs or perform other actions
+
+    digitalWrite(IGNITION_CONTROL_PIN, HIGH); // turn on ignition relay
+    bikeIgnitionOn = true;
+
+    // Start the ignition-watchdog timer: engine must reach RPM threshold
+    // within IGNITION_RPM_TIMEOUT_MS or ignition will be cut.
+    ignitionOnMillis = millis();
+    ignitionTimerActive = true;
+    Serial.println("Ignition enabled; awaiting engine start (RPM>=300) for 60s.");
+  }
+
+  // Safety watchdog: if ignition enabled but RPM stays below threshold
+  // for the configured timeout, cut ignition and reset state.
+  if (bikeIgnitionOn && ignitionTimerActive) {
+    if (RPMValue >= RPM_THRESHOLD) {
+      // Engine started, cancel watchdog
+      ignitionTimerActive = false;
+      Serial.println("Engine started; ignition timer canceled.");
+    } else if (millis() - ignitionOnMillis >= IGNITION_RPM_TIMEOUT_MS) {
+      Serial.println("Safety: Engine did not start within 60s; cutting ignition.");
+      digitalWrite(IGNITION_CONTROL_PIN, LOW);
+      bikeIgnitionOn = false;
+      ignitionTimerActive = false;
+    }
+  }
+
+  // Bike turn off scenario: if card is detected while ignition is on, cut ignition immediately
+  if (cardFound && bikeIgnitionOn) {
+    digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
+    bikeIgnitionOn = false;
+    Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
   }
 }
