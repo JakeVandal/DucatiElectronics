@@ -9,17 +9,11 @@ Last Updated: 6/02/2026
 #include <SPI.h>
 #include "../lib/pinMap.h"
 #include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 #include "TFTDisplay.h"
 
-// Select display driver. Define USE_ST7796 to use ST7796_t3 driver.
-#define USE_ST7796
-#ifdef USE_ST7796
-#include <ST7796_t3.h>
-ST7796_t3 tft = ST7796_t3(TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN);
-#else
-#include <ILI9341_t3n.h>
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN);
-#endif
+Adafruit_ILI9341 tft(TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN);
 
 // Touch IRQ flag and ISR
 volatile bool touchIRQ = false;
@@ -56,15 +50,15 @@ void drawWriteButton(bool pressed);
 // Public API ---------------------------------------------------------------
 void TFT_begin()
 {
-	SPI.begin();
+	SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS_PIN);
 	tft.begin();
 	tft.setRotation(1);
 	pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
 	analogWrite(TFT_BACKLIGHT_PIN, 255);
 	tft.fillScreen(ILI9341_BLACK);
-	// Init I2C1 for touch controller
-	Wire1.begin();
-	Wire1.setClock(400000);
+	// Init I2C for touch controller
+	Wire.begin(TOUCH_SDA, TOUCH_SCL);
+	Wire.setClock(400000);
 	// Configure touch interrupt pin
 	pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(TOUCH_INT_PIN), touchISR, FALLING);
@@ -90,22 +84,22 @@ void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int ge
 	if (touchIRQ) {
 		touchIRQ = false;
 		const uint8_t addr = 0x38; // FT6336U typical address
-		Wire1.beginTransmission(addr);
-		Wire1.write(0x02);
-		if (Wire1.endTransmission() == 0) {
-			Wire1.requestFrom(addr, (uint8_t)1);
-			if (Wire1.available()) {
-				uint8_t touches = Wire1.read();
+		Wire.beginTransmission(addr);
+		Wire.write(0x02);
+		if (Wire.endTransmission() == 0) {
+			Wire.requestFrom(addr, (uint8_t)1);
+			if (Wire.available()) {
+				uint8_t touches = Wire.read();
 				if ((touches & 0x0F) > 0) {
-					Wire1.beginTransmission(addr);
-					Wire1.write(0x03);
-					if (Wire1.endTransmission() == 0) {
-						Wire1.requestFrom(addr, (uint8_t)4);
-						if (Wire1.available() >= 4) {
-							uint8_t xh = Wire1.read();
-							uint8_t xl = Wire1.read();
-							uint8_t yh = Wire1.read();
-							uint8_t yl = Wire1.read();
+					Wire.beginTransmission(addr);
+					Wire.write(0x03);
+					if (Wire.endTransmission() == 0) {
+						Wire.requestFrom(addr, (uint8_t)4);
+						if (Wire.available() >= 4) {
+							uint8_t xh = Wire.read();
+							uint8_t xl = Wire.read();
+							uint8_t yh = Wire.read();
+							uint8_t yl = Wire.read();
 							int rawX = ((xh & 0x0F) << 8) | xl;
 							int rawY = ((yh & 0x0F) << 8) | yl;
 							// FT6336U is 12-bit. Map to actual screen size.

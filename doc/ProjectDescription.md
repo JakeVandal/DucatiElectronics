@@ -4,7 +4,7 @@ Description:
 A dedicated electronics system for a 1999 Ducati 900ss with RFID-based access key ignition system, GPS speedometer, accelerometer data, and touchscreen display to highlight key data (speed, RPM, gear, temperature, and ).
 
 Features:
--> Teensy 4.1 Microcontroller
+-> ESP32-S3 (N16R8) Microcontroller
 -> MFRC522 Based Keyless Ignition Access System
     -Read/Write to card/fob via either laptop or through display
 -> GT-U7 GPS based speedometer 
@@ -19,9 +19,9 @@ Features:
 -> Voltage based fuel level gauge
 
 Communications:
-MFRC522 -> SPI (SPI0)
-GY-521 -> I2C (I2C0)
+MFRC522 -> SPI
+GY-521 -> I2C
 DHT11 -> One-Wire
-GT-U7 -> UART (UART5)
-TFT Display -> SPI (SPI1)
-TFT Capacitive Touch -> I2C (I2C1)
+GT-U7 -> UART
+TFT Display -> SPI
+TFT Capacitive Touch -> I2C

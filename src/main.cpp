@@ -133,15 +133,17 @@ boolean readPICC() {
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
-  while (!Serial); // Wait for serial port to connect. Needed for native USB
+  while (!Serial && millis() < 2000) {
+    delay(10);
+  }
 
-  Serial5.begin(GPSBaud);
+  Serial1.begin(GPSBaud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
   // Initialize analog inputs
   analogReadResolution(12);
 
   // Initialize SPI communication
-  SPI.begin();      // Init SPI bus
+  SPI.begin(MFRC522_SCK, MFRC522_MISO, MFRC522_MOSI, MFRC522_CS_PIN);      // Init SPI bus
   mfrc522.PCD_Init();   // Init MFRC522 card
 
   // Initialize TFT and sensors
@@ -166,8 +168,8 @@ void setup() {
 
 void loop() {
   // Process GPS serial data
-  while (Serial5.available() > 0) {
-    gps.encode(Serial5.read());
+  while (Serial1.available() > 0) {
+    gps.encode(Serial1.read());
   }
 
   if (gps.location.isUpdated() && gps.location.isValid()) {
