@@ -129,6 +129,31 @@ boolean readPICC() {
   return cardMatch;
 }
 
+boolean writePICC(byte dataToWrite) {
+  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+    Serial.println("No card present for write.");
+    return false;
+  }
+
+  byte blockAddr = 4;
+  byte buffer[16] = {0};
+  buffer[0] = dataToWrite;
+
+  if (!mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, blockAddr, &key, &(mfrc522.uid))) {
+    Serial.println("RFID authentication failed.");
+    mfrc522.PICC_HaltA();
+    mfrc522.PCD_StopCrypto1();
+    return false;
+  }
+
+  MFRC522::StatusCode status = mfrc522.MIFARE_Write(blockAddr, buffer, 16);
+  bool success = (status == MFRC522::STATUS_OK);
+
+  Serial.println(success ? "RFID write successful." : "RFID write failed.");
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+  return success;
+}
 
 void setup() {
   // Initialize serial communication
