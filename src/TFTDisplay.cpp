@@ -9,11 +9,10 @@ Last Updated: 6/02/2026
 #include <SPI.h>
 #include "../lib/pinMap.h"
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ILI9341.h>
+#include <TFT_eSPI.h>
 #include "TFTDisplay.h"
 
-Adafruit_ILI9341 tft(TFT_CS_PIN, TFT_DC_PIN, TFT_RST_PIN);
+TFT_eSPI tft = TFT_eSPI();
 
 // Touch IRQ flag and ISR
 volatile bool touchIRQ = false;
@@ -37,9 +36,6 @@ static bool writeRequested = false;
 static bool writeSuccess = false;
 
 // Layout constants for gauge
-static const int TACH_CENTER_X = 160;
-static const int TACH_CENTER_Y = 180;
-static const int TACH_RADIUS = 120;
 static const int MAX_RPM = 11000; // 11 kRPM
 
 // Helper forward declarations
@@ -50,12 +46,22 @@ void drawWriteButton(bool pressed);
 // Public API ---------------------------------------------------------------
 void TFT_begin()
 {
-	SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS_PIN);
-	tft.begin();
+	pinMode(TFT_CS_PIN, OUTPUT);
+	digitalWrite(TFT_CS_PIN, HIGH);
+	pinMode(TFT_DC_PIN, OUTPUT);
+	digitalWrite(TFT_DC_PIN, HIGH);
+	pinMode(TFT_RST_PIN, OUTPUT);
+	digitalWrite(TFT_RST_PIN, LOW);
+	delay(50);
+	digitalWrite(TFT_RST_PIN, HIGH);
+	delay(50);
+
+	SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, -1);
+	tft.init();
 	tft.setRotation(1);
 	pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
 	analogWrite(TFT_BACKLIGHT_PIN, 255);
-	tft.fillScreen(ILI9341_BLACK);
+	tft.fillScreen(TFT_BLACK);
 	// Init I2C for touch controller
 	Wire.begin(TOUCH_SDA, TOUCH_SCL);
 	Wire.setClock(400000);
@@ -119,13 +125,13 @@ void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int ge
 void TFT_nextPage()
 {
 	currentPage = (currentPage + 1) % 2;
-	tft.fillScreen(ILI9341_BLACK);
+	tft.fillScreen(TFT_BLACK);
 }
 
 void TFT_prevPage()
 {
 	currentPage = (currentPage - 1 + 2) % 2;
-	tft.fillScreen(ILI9341_BLACK);
+	tft.fillScreen(TFT_BLACK);
 }
 
 // Call when user presses the on-screen write button or an external trigger
@@ -157,9 +163,10 @@ bool TFT_takeWriteRequest()
 // A simple implementation: tap right half -> next page, left half -> prev page
 void TFT_onTouch(int x, int y)
 {
-	if (x > 240) {
+	int screenWidth = tft.width();
+	if (x > (screenWidth / 2)) {
 		TFT_nextPage();
-	} else if (x < 80) {
+	} else if (x < (screenWidth / 4)) {
 		TFT_prevPage();
 	} else if (currentPage == 1) {
 		// check if tap is inside write button area
@@ -173,30 +180,32 @@ void TFT_onTouch(int x, int y)
 // Internal drawing functions ------------------------------------------------
 void drawTachometer(int rpm, float speedMph, float tempF, float fuelLevel, int gear)
 {
-	tft.fillScreen(ILI9341_BLACK);
+	tft.fillScreen(TFT_BLACK);
+	const int displayWidth = tft.width();
+	const int displayHeight = tft.height();
 
 	// Draw title
-	tft.setTextColor(ILI9341_WHITE);
-	tft.setTextSize(2);
+	tft.setTextColor(TFT_WHITE);
+	tft.setTextSize(3);
 	tft.setCursor(10, 10);
-	tft.print("Tachometer");
+	tft.print("1999 Ducati 900SS");
 
 	// Draw GPS speed, temperature, fuel, and gear
 	tft.setTextSize(2);
 	tft.setCursor(10, 40);
 	tft.print("Speed: ");
 	tft.print(speedMph, 1);
-	tft.print(" mph");
+	tft.print(" [mph]");
 
 	tft.setCursor(10, 64);
 	tft.print("Temp:  ");
 	tft.print(tempF, 1);
-	tft.print(" F");
+	tft.print(" [F]");
 
 	tft.setCursor(10, 88);
 	tft.print("Fuel:  ");
 	tft.print(fuelLevel, 0);
-	tft.print(" %");
+	tft.print(" [%]");
 
 	tft.setCursor(10, 112);
 	tft.print("Gear:  ");
@@ -209,64 +218,45 @@ void drawTachometer(int rpm, float speedMph, float tempF, float fuelLevel, int g
 	// Fuel bar
 	int barX = 10;
 	int barY = 140;
-	int barW = 220;
+	int barW = max(120, displayWidth - 20);
 	int barH = 16;
-	tft.drawRect(barX, barY, barW, barH, ILI9341_WHITE);
+	tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
 	int fillW = constrain((int)(barW * (fuelLevel / 100.0f)), 0, barW);
-	tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, ILI9341_GREEN);
+	tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
 	tft.setTextSize(1);
 	tft.setCursor(barX + 4, barY + 2);
-	tft.setTextColor(ILI9341_BLACK);
+	tft.setTextColor(TFT_BLACK);
 	tft.print("Fuel Level");
-	tft.setTextColor(ILI9341_WHITE);
+	tft.setTextColor(TFT_WHITE);
 
-	// Draw gauge background (tick marks)
-	for (int i = 0; i <= 11; i++) {
-		float fraction = (float)i / 11.0f;
-		int tickR = TACH_RADIUS;
-		float angle = (-135.0 + fraction * 270.0) * DEG_TO_RAD;
-		int x1 = TACH_CENTER_X + (int)((tickR - 10) * cos(angle));
-		int y1 = TACH_CENTER_Y + (int)((tickR - 10) * sin(angle));
-		int x2 = TACH_CENTER_X + (int)((tickR) * cos(angle));
-		int y2 = TACH_CENTER_Y + (int)((tickR) * sin(angle));
-		tft.drawLine(x1, y1, x2, y2, ILI9341_WHITE);
-		// label
-		int lx = TACH_CENTER_X + (int)((tickR - 28) * cos(angle));
-		int ly = TACH_CENTER_Y + (int)((tickR - 28) * sin(angle));
-		tft.setTextSize(1);
-		tft.setCursor(lx - 6, ly - 4);
-		tft.print(i); // label from 0..11 (x1000)
-	}
-
-	// Draw needle
-	float rpmFrac = constrain((float)rpm / (float)MAX_RPM, 0.0f, 1.0f);
-	float needleAngle = (-135.0 + rpmFrac * 270.0) * DEG_TO_RAD;
-	int nx = TACH_CENTER_X + (int)((TACH_RADIUS - 30) * cos(needleAngle));
-	int ny = TACH_CENTER_Y + (int)((TACH_RADIUS - 30) * sin(needleAngle));
-	// Needle base (clear center)
-	tft.fillCircle(TACH_CENTER_X, TACH_CENTER_Y, 6, ILI9341_WHITE);
-	// Draw needle line
-	tft.drawLine(TACH_CENTER_X, TACH_CENTER_Y, nx, ny, ILI9341_RED);
-
-	// Draw rpm text
+	// RPM bar
+	int rpmBarX = 10;
+	int rpmBarY = 190;
+	int rpmBarW = max(120, displayWidth - 20);
+	int rpmBarH = 20;
+	tft.drawRect(rpmBarX, rpmBarY, rpmBarW, rpmBarH, TFT_WHITE);
+	int rpmFillW = constrain((int)(rpmBarW * (rpm / (float)MAX_RPM)), 0, rpmBarW);
+	tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, TFT_RED);
 	tft.setTextSize(2);
-	tft.setCursor(10, 100);
+	tft.setCursor(rpmBarX, rpmBarY - 20);
 	tft.print("RPM: ");
 	tft.print(rpm);
-	tft.print(" ");
-
 	// small legend showing max
 	tft.setTextSize(1);
-	tft.setCursor(10, 130);
-	tft.print("Max 11k RPM");
+	tft.setCursor(rpmBarX + 2, rpmBarY + 2);
+	tft.setTextColor(TFT_BLACK);
+	tft.print("RPM");
+	tft.setTextColor(TFT_WHITE);
+	tft.setCursor(rpmBarX + rpmBarW - 24, rpmBarY + 2);
+	tft.print("11k");
 }
 
 void drawWriteButton(bool pressed)
 {
 	int bx = 60, by = 140, bw = 200, bh = 60;
-	uint16_t color = pressed ? ILI9341_DARKGREY : ILI9341_BLUE;
+	uint16_t color = pressed ? 0x7BEF : TFT_BLUE;
 	tft.fillRoundRect(bx, by, bw, bh, 8, color);
-	tft.setTextColor(ILI9341_WHITE);
+	tft.setTextColor(TFT_WHITE);
 	tft.setTextSize(2);
 	tft.setCursor(bx + 30, by + 18);
 	tft.print("Write RFID Card");
@@ -274,8 +264,8 @@ void drawWriteButton(bool pressed)
 
 void drawRFIDWriterPage()
 {
-	tft.fillScreen(ILI9341_BLACK);
-	tft.setTextColor(ILI9341_WHITE);
+	tft.fillScreen(TFT_BLACK);
+	tft.setTextColor(TFT_WHITE);
 	tft.setTextSize(2);
 	tft.setCursor(10, 10);
 	tft.print("RFID Writer");

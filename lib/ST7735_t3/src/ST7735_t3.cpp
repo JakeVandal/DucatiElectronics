@@ -264,6 +264,79 @@ void ST7735_t3::setBitrate(uint32_t n)
 	_pkinetisk_spi->MCR = SPI_MCR_MSTR | SPI_MCR_PCSIS(0x1F) | SPI_MCR_CLR_TXF | SPI_MCR_CLR_RXF;
 }
 
+/***************************************************************/
+/*     ESP32 / Arduino                                      */
+/***************************************************************/
+#elif defined(ARDUINO_ARCH_ESP32)
+
+inline void ST7735_t3::spiwrite(uint8_t c)
+{
+  if (_pspi) {
+    _pspi->transfer(c);
+    return;
+  }
+
+  for (uint8_t bit = 0x80; bit; bit >>= 1) {
+    digitalWrite(_sid, (c & bit) ? HIGH : LOW);
+    digitalWrite(_sclk, HIGH);
+    digitalWrite(_sclk, LOW);
+  }
+}
+
+inline void ST7735_t3::spiwrite16(uint16_t d)
+{
+  if (_pspi) {
+    _pspi->transfer16(d);
+    return;
+  }
+  spiwrite(d >> 8);
+  spiwrite(d);
+}
+
+void ST7735_t3::writecommand(uint8_t c)
+{
+  digitalWrite(_rs, LOW);
+  spiwrite(c);
+}
+
+void ST7735_t3::writecommand_last(uint8_t c)
+{
+  digitalWrite(_rs, LOW);
+  spiwrite(c);
+}
+
+void ST7735_t3::writedata(uint8_t c)
+{
+  digitalWrite(_rs, HIGH);
+  spiwrite(c);
+}
+
+void ST7735_t3::writedata_last(uint8_t c)
+{
+  digitalWrite(_rs, HIGH);
+  spiwrite(c);
+}
+
+void ST7735_t3::writedata16(uint16_t d)
+{
+  digitalWrite(_rs, HIGH);
+  spiwrite16(d);
+}
+
+void ST7735_t3::writedata16_last(uint16_t d)
+{
+  digitalWrite(_rs, HIGH);
+  spiwrite16(d);
+}
+
+void ST7735_t3::setBitrate(uint32_t n)
+{
+  (void)n;
+  if (_pspi) {
+    _pspi->setClockDivider(SPI_CLOCK_DIV2);
+  }
+}
+
 
 /***************************************************************/
 /*     Teensy 4.                                               */
@@ -810,6 +883,21 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		pinMode(_sid, OUTPUT);
 	}
 	// Teensy 4
+#elif defined(ARDUINO_ARCH_ESP32)
+	if (_sid == (uint8_t)-1) _sid = 11;
+	if (_sclk == (uint8_t)-1) _sclk = 12;
+	hwSPI = true;
+	_pspi = &SPI;
+	_spiSettings = SPISettings(16000000, MSBFIRST, mode);
+	if (_cs != 0xff) pinMode(_cs, OUTPUT);
+	pinMode(_rs, OUTPUT);
+	pinMode(_sid, OUTPUT);
+	pinMode(_sclk, OUTPUT);
+	if (_cs != 0xff) digitalWrite(_cs, HIGH);
+	digitalWrite(_rs, HIGH);
+	digitalWrite(_sid, LOW);
+	digitalWrite(_sclk, LOW);
+	_spi_num = 0;
 #elif defined(__IMXRT1062__)  // Teensy 4.x 
 	if (_sid == (uint8_t)-1) _sid = 11;
 	if (_sclk == (uint8_t)-1) _sclk = 13;

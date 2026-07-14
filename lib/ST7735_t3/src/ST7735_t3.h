@@ -25,6 +25,10 @@
 #include <SPI.h>
 #endif
 
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp32-hal-gpio.h>
+#endif
+
 #include "ILI9341_fonts.h"
 
 #ifndef DISABLE_ST77XX_FRAMEBUFFER
@@ -43,7 +47,7 @@
 
 
 //#define ST7735_SPICLOCK 24'000'000
-#define ST7735_SPICLOCK 16'000'000
+#define ST7735_SPICLOCK 16000000
 
 // some flags for initR() :(
 #define INITR_GREENTAB 0x0
@@ -488,11 +492,11 @@ class ST7735_t3 : public Print
 	bool _standard = true; // no bounding rectangle or origin set. 
 
 	inline void updateDisplayClip() {
-		_displayclipx1 = max(0,min(_clipx1+_originx, width()));
-		_displayclipx2 = max(0,min(_clipx2+_originx, width()));
+		_displayclipx1 = max((int16_t)0, min((int16_t)(_clipx1+_originx), (int16_t)width()));
+		_displayclipx2 = max((int16_t)0, min((int16_t)(_clipx2+_originx), (int16_t)width()));
 
-		_displayclipy1 = max(0,min(_clipy1+_originy, height()));
-		_displayclipy2 = max(0,min(_clipy2+_originy, height()));
+		_displayclipy1 = max((int16_t)0, min((int16_t)(_clipy1+_originy), (int16_t)height()));
+		_displayclipy2 = max((int16_t)0, min((int16_t)(_clipy2+_originy), (int16_t)height()));
 		_invisible = (_displayclipx1 == _displayclipx2 || _displayclipy1 == _displayclipy2);
 		_standard =  (_displayclipx1 == 0) && (_displayclipx2 == _width) && (_displayclipy1 == 0) && (_displayclipy2 == _height);
 		if (Serial) {
@@ -566,7 +570,28 @@ class ST7735_t3 : public Print
 
 
 #endif
-#if defined(__IMXRT1062__)  // Teensy 4.x
+#if defined(ARDUINO_ARCH_ESP32)
+  SPIClass *_pspi = nullptr;
+  uint8_t   _spi_num = 0;
+  uint8_t  _cs, _rs, _rst, _sid, _sclk;
+
+  inline void beginSPITransaction() {
+    if (hwSPI) SPI.beginTransaction(_spiSettings);
+    if (_cs != 0xff) digitalWrite(_cs, LOW);
+  }
+
+  inline void endSPITransaction() {
+    if (_cs != 0xff) digitalWrite(_cs, HIGH);
+    if (hwSPI) SPI.endTransaction();
+  }
+
+  void DIRECT_WRITE_LOW(volatile uint32_t * base, uint32_t mask)  __attribute__((always_inline)) {
+    (void)base; (void)mask;
+  }
+  void DIRECT_WRITE_HIGH(volatile uint32_t * base, uint32_t mask)  __attribute__((always_inline)) {
+    (void)base; (void)mask;
+  }
+#elif defined(__IMXRT1062__)  // Teensy 4.x
   SPIClass *_pspi = nullptr;
   uint8_t   _spi_num = 0;          // Which buss is this spi on? 
   IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
@@ -655,6 +680,16 @@ class ST7735_t3 : public Print
   
 
   uint32_t ctar;
+#endif
+#if defined(ARDUINO_ARCH_ESP32)
+  uint32_t _cspinmask;
+  volatile uint32_t *_csport;
+  uint32_t _dcpinmask;
+  volatile uint32_t *_dcport;
+  uint32_t _mosipinmask;
+  volatile uint32_t *_mosiport;
+  uint32_t _sckpinmask;
+  volatile uint32_t *_sckport;
 #endif
 #if defined(__MKL26Z64__)
   KINETISL_SPI_t *_pkinetisl_spi;

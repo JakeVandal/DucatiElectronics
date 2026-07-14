@@ -167,13 +167,18 @@ void setup() {
   // Initialize analog inputs
   analogReadResolution(12);
 
-  // Initialize SPI communication
-  SPI.begin(MFRC522_SCK, MFRC522_MISO, MFRC522_MOSI, MFRC522_CS_PIN);      // Init SPI bus
-  mfrc522.PCD_Init();   // Init MFRC522 card
+  // Initialize shared SPI bus once and keep both chip selects deasserted.
+  pinMode(MFRC522_CS_PIN, OUTPUT);
+  digitalWrite(MFRC522_CS_PIN, HIGH);
+  pinMode(TFT_CS_PIN, OUTPUT);
+  digitalWrite(TFT_CS_PIN, HIGH);
+  SPI.begin(MFRC522_SCK, MFRC522_MISO, MFRC522_MOSI, -1);
 
-  // Initialize TFT and sensors
+  // Initialize TFT first so the shared SPI bus is stable before the RFID reader starts using it.
   dht.begin();
   TFT_begin();
+
+  mfrc522.PCD_Init();   // Init MFRC522 card
 
   // Set the key for authentication (default key for MIFARE cards)
   for (byte i = 0; i < 6; i++) {
