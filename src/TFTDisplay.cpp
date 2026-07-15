@@ -29,7 +29,7 @@ static int cachedRPM = 0;
 static float cachedGPSSpeed = 0.0f; // Mph
 static float cachedTempF = 0.0f;
 static float cachedFuelLevel = 0.0f; // percent
-static int cachedGear = 0;
+static int cachedGear = 6;
 
 // RFID write state
 static bool writeRequested = false;
@@ -178,77 +178,82 @@ void TFT_onTouch(int x, int y)
 }
 
 // Internal drawing functions ------------------------------------------------
+static bool tachLayoutDrawn = false;
+
+void drawTachometerStatic()
+{
+    tft.fillScreen(TFT_BLACK);
+    const int displayWidth = tft.width();
+
+    tft.setTextColor(TFT_WHITE);
+
+    // Static labels only — values get drawn separately with background color
+    // so they overwrite in place instead of needing a fillScreen.
+    tft.setTextSize(2);
+
+    int barX = 10, barY = 10, barW = displayWidth / 3, barH = 20;
+    tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+
+    int rpmBarX = 10, rpmBarY = 220, rpmBarW = max(120, displayWidth - 20), rpmBarH = 80;
+    tft.drawRect(rpmBarX, rpmBarY, rpmBarW, rpmBarH, TFT_WHITE);
+    tft.setTextSize(1);
+    tft.setCursor(rpmBarX + rpmBarW - 24, rpmBarY + 2);
+    tft.setTextColor(TFT_WHITE);
+
+    tachLayoutDrawn = true;
+}
+
 void drawTachometer(int rpm, float speedMph, float tempF, float fuelLevel, int gear)
 {
-	tft.fillScreen(TFT_BLACK);
-	const int displayWidth = tft.width();
+    if (!tachLayoutDrawn) drawTachometerStatic();
+
+    const int displayWidth = tft.width();
 	const int displayHeight = tft.height();
 
-	// Draw title
-	tft.setTextColor(TFT_WHITE);
-	tft.setTextSize(3);
-	tft.setCursor(10, 10);
-	tft.print("1999 Ducati 900SS");
+    // Setting an explicit background color makes print() overwrite the
+    // previous digits automatically instead of blending old/new text.
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
-	// Draw GPS speed, temperature, fuel, and gear
+    tft.setCursor(displayWidth / 2 - 77, displayHeight / 2 - 40);
+	tft.setTextSize(5);
+    tft.print(speedMph, 1); 
 	tft.setTextSize(2);
-	tft.setCursor(10, 40);
-	tft.print("Speed: ");
-	tft.print(speedMph, 1);
-	tft.print(" [mph]");
+	tft.print(" [Mph]"); // trailing spaces clear leftover digits
 
-	tft.setCursor(10, 64);
-	tft.print("Temp:  ");
-	tft.print(tempF, 1);
-	tft.print(" [F]");
+	tft.setTextSize(2);
+    tft.setCursor(375, 15);
+    tft.print(tempF, 1); tft.print("[F]");
 
-	tft.setCursor(10, 88);
-	tft.print("Fuel:  ");
-	tft.print(fuelLevel, 0);
-	tft.print(" [%]");
+	tft.setCursor(10 + displayWidth / 3 + 7, 12);
+    tft.print(fuelLevel, 0); tft.print("[%]");
 
-	tft.setCursor(10, 112);
-	tft.print("Gear:  ");
-	if (gear == 0) {
+	tft.setTextSize(4);
+	tft.setCursor(15, 45);
+	if (gear == 0) { 
+		tft.setTextColor(TFT_GREEN);
 		tft.print("N");
-	} else {
+	} else { 
+		tft.setTextColor(TFT_WHITE); 
 		tft.print(gear);
 	}
+    // Fuel bar — clear just the fill area, don't redraw the border
+    int barX = 10, barY = 10, barW = displayWidth / 3, barH = 20;
+    tft.fillRect(barX + 1, barY + 1, barW - 2, barH - 2, TFT_BLACK);
+    int fillW = constrain((int)((barW - 2) * (fuelLevel / 100.0f)), 0, barW - 2);
+    tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
 
-	// Fuel bar
-	int barX = 10;
-	int barY = 140;
-	int barW = max(120, displayWidth - 20);
-	int barH = 16;
-	tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
-	int fillW = constrain((int)(barW * (fuelLevel / 100.0f)), 0, barW);
-	tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
-	tft.setTextSize(1);
-	tft.setCursor(barX + 4, barY + 2);
-	tft.setTextColor(TFT_BLACK);
-	tft.print("Fuel Level");
-	tft.setTextColor(TFT_WHITE);
+    // RPM bar
+    int rpmBarX = 10, rpmBarY = 220, rpmBarW = max(120, displayWidth - 20), rpmBarH = 80;
+    tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmBarW - 2, rpmBarH - 2, TFT_BLACK);
+    int rpmFillW = constrain((int)((rpmBarW - 2) * (rpm / (float)MAX_RPM)), 0, rpmBarW - 2);
+    tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, TFT_RED);
 
-	// RPM bar
-	int rpmBarX = 10;
-	int rpmBarY = 190;
-	int rpmBarW = max(120, displayWidth - 20);
-	int rpmBarH = 20;
-	tft.drawRect(rpmBarX, rpmBarY, rpmBarW, rpmBarH, TFT_WHITE);
-	int rpmFillW = constrain((int)(rpmBarW * (rpm / (float)MAX_RPM)), 0, rpmBarW);
-	tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, TFT_RED);
-	tft.setTextSize(2);
-	tft.setCursor(rpmBarX, rpmBarY - 20);
-	tft.print("RPM: ");
-	tft.print(rpm);
-	// small legend showing max
-	tft.setTextSize(1);
-	tft.setCursor(rpmBarX + 2, rpmBarY + 2);
-	tft.setTextColor(TFT_BLACK);
-	tft.print("RPM");
-	tft.setTextColor(TFT_WHITE);
-	tft.setCursor(rpmBarX + rpmBarW - 24, rpmBarY + 2);
-	tft.print("11k");
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+	tft.setTextSize(2.5);
+    tft.setCursor(rpmBarX, rpmBarY - 25);
+    tft.print("RPM: ");
+    tft.print(rpm);
+    tft.print("    ");
 }
 
 void drawWriteButton(bool pressed)
@@ -257,7 +262,7 @@ void drawWriteButton(bool pressed)
 	uint16_t color = pressed ? 0x7BEF : TFT_BLUE;
 	tft.fillRoundRect(bx, by, bw, bh, 8, color);
 	tft.setTextColor(TFT_WHITE);
-	tft.setTextSize(2);
+	tft.setTextSize(8);
 	tft.setCursor(bx + 30, by + 18);
 	tft.print("Write RFID Card");
 }

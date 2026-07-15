@@ -57,6 +57,10 @@ bool ignitionTimerActive = false;
 const unsigned long IGNITION_RPM_TIMEOUT_MS = 60000; // 60 seconds
 const int RPM_THRESHOLD = 300;
 
+// Display update timing
+static unsigned long lastDisplayUpdate = 0;
+const unsigned long DISPLAY_UPDATE_INTERVAL_MS = 150;
+
 // ISR for tachometer pulse
 void tachISR() {
   tachPulseCount++;
@@ -242,7 +246,10 @@ void loop() {
     lastRPMMillis += 1000;
   }
 
-  TFT_update(RPMValue, GPSSpeedMph, CurrentTempF, CurrentFuelLevel, CurrentGear);
+  if (millis() - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL_MS) {
+  lastDisplayUpdate = millis();
+  TFT_update(3500, 185.2, CurrentTempF, 67, 6);
+}
 
   // Handle touch-triggered RFID write requests
   if (TFT_takeWriteRequest()) {
