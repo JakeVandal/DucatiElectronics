@@ -12,7 +12,6 @@ Version: 1.0
 #include <MFRC522.h>
 #include <SPI.h>
 #include "../lib/pinMap.h"
-#include "piccWriter.h"
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
 #include "TFTDisplay.h"
@@ -58,8 +57,12 @@ const unsigned long IGNITION_RPM_TIMEOUT_MS = 60000; // 60 seconds
 const int RPM_THRESHOLD = 300;
 
 // Display update timing
-static unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_UPDATE_INTERVAL_MS = 150;
+static unsigned long lastTachUpdate = 0;
+static unsigned long lastFuelUpdate = 0;
+static unsigned long lastMiscUpdate = 0;
+const unsigned long TACH_UPDATE_INTERVAL_MS = 300;
+const unsigned long FUEL_UPDATE_INTERVAL_MS = 5000; // 5 seconds
+const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
 
 // ISR for tachometer pulse
 void tachISR() {
@@ -235,21 +238,31 @@ void loop() {
   int rawGear = analogRead(GEAR_VOLTAGE_PIN);
   CurrentGear = getGearFromVoltage(rawGear);
 
-  // Update RPM once per second based on pulse count. Assumes 1 pulse per rev.
+  // Update RPM once per 300ms based on pulse count. Assumes 1 pulse per rev.
   static unsigned long lastRPMMillis = 0;
-  if (millis() - lastRPMMillis >= 1000) {
+  if (millis() - lastRPMMillis >= 300) {
     noInterrupts();
     unsigned long pulses = tachPulseCount;
     tachPulseCount = 0;
     interrupts();
     RPMValue = pulses * 60; // pulses per second -> RPM
-    lastRPMMillis += 1000;
+    lastRPMMillis += 300;
   }
 
-  if (millis() - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL_MS) {
-  lastDisplayUpdate = millis();
-  TFT_update(3500, 185.2, CurrentTempF, 67, 6);
-}
+  if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
+    lastTachUpdate = millis();
+    TFT_Tach_update(RPMValue, GPSSpeedMph, CurrentGear);
+  }
+
+  if (millis() - lastFuelUpdate >= FUEL_UPDATE_INTERVAL_MS) {
+    lastFuelUpdate = millis();
+    TFT_Fuel_update(CurrentFuelLevel);
+  }
+
+  if (millis() - lastMiscUpdate >= MISC_UPDATE_INTERVAL_MS) {
+    lastMiscUpdate = millis();
+    TFT_Misc_update(CurrentTempF);
+  }
 
   // Handle touch-triggered RFID write requests
   if (TFT_takeWriteRequest()) {
