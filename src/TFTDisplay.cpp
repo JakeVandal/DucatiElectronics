@@ -210,6 +210,18 @@ void TFT_onTouch(int x, int y) {
 
 // Internal drawing functions ------------------------------------------------
 static bool tachLayoutDrawn = false;
+static int lastRpmFillW = -1;
+static uint16_t lastRpmBarColor = TFT_BLUE;
+
+void drawRpmTicks(int rpmBarX, int rpmBarY, int rpmBarW, int rpmBarH) {
+	int tickHeight = rpmBarH / 2;
+	int tickStartY = rpmBarY + (rpmBarH - tickHeight) / 2;
+	for (int tickNumber = 1; tickNumber <= 10; ++tickNumber) {
+		int rpmMark = tickNumber * 1000;
+		int tickX = rpmBarX + 1 + (int)((rpmBarW - 2) * (rpmMark / (float)MAX_RPM));
+		tft.drawLine(tickX, tickStartY, tickX, tickStartY + tickHeight, TFT_WHITE);
+	}
+}
 
 void drawTachometerStatic() {
     tft.fillScreen(TFT_BLACK);
@@ -230,6 +242,29 @@ void drawTachometerStatic() {
     tft.setCursor(rpmBarX + rpmBarW - 24, rpmBarY + 2);
     tft.setTextColor(TFT_WHITE);
 
+	// Draw tick marks and labels once as part of the static tach layout.
+	tft.setTextSize(1);
+	tft.setTextColor(TFT_WHITE, TFT_BLACK);
+	for (int tickNumber = 1; tickNumber <= 10; ++tickNumber) {
+		int rpmMark = tickNumber * 1000;
+		int tickX = rpmBarX + 1 + (int)((rpmBarW - 2) * (rpmMark / (float)MAX_RPM));
+
+		int labelX = tickX - 3;
+		if (tickNumber == 10) {
+			labelX -= 3;
+		}
+		tft.setCursor(labelX, rpmBarY - 12);
+		tft.print(tickNumber);
+	}
+
+	tft.setCursor(420, rpmBarY + rpmBarH + 5);
+	tft.setTextSize(1.5);
+	tft.setTextColor(TFT_WHITE, TFT_BLACK);
+	tft.print("x1000");
+	drawRpmTicks(rpmBarX, rpmBarY, rpmBarW, rpmBarH);
+
+    lastRpmFillW = -1;
+    lastRpmBarColor = TFT_BLUE;
     tachLayoutDrawn = true;
 }
 
@@ -261,21 +296,25 @@ void drawTachometer(int rpm, float speedMph, int gear) {
 
     // RPM bar
     int rpmBarX = 10, rpmBarY = 220, rpmBarW = max(120, displayWidth - 20), rpmBarH = 80;
-    tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmBarW - 2, rpmBarH - 2, TFT_BLACK);
     int rpmFillW = constrain((int)((rpmBarW - 2) * (rpm / (float)MAX_RPM)), 0, rpmBarW - 2);
-    tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, TFT_RED);
-
-	// Draw tick marks every 1000 RPM
-    int tickHeight = rpmBarH / 3;
-    int tickStartY = rpmBarY + (rpmBarH - tickHeight) / 2; // center vertically
-    for (int rpm_mark = 1000; rpm_mark <= MAX_RPM; rpm_mark += 1000) {
-        int tickX = rpmBarX + 1 + (int)((rpmBarW - 2) * (rpm_mark / (float)MAX_RPM));
-        tft.drawLine(tickX, tickStartY, tickX, tickStartY + tickHeight, TFT_DARKGREY);
-    }
+	uint16_t rpmBarColor = (rpm >= 9000) ? TFT_RED : TFT_BLUE;
+	if (lastRpmFillW < 0 || rpmBarColor != lastRpmBarColor) {
+		tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmBarW - 2, rpmBarH - 2, TFT_BLACK);
+		if (rpmFillW > 0) {
+			tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, rpmBarColor);
+		}
+	} else if (rpmFillW > lastRpmFillW) {
+		tft.fillRect(rpmBarX + 1 + lastRpmFillW, rpmBarY + 1, rpmFillW - lastRpmFillW, rpmBarH - 2, rpmBarColor);
+	} else if (rpmFillW < lastRpmFillW) {
+		tft.fillRect(rpmBarX + 1 + rpmFillW, rpmBarY + 1, lastRpmFillW - rpmFillW, rpmBarH - 2, TFT_BLACK);
+	}
+	drawRpmTicks(rpmBarX, rpmBarY, rpmBarW, rpmBarH);
+	lastRpmFillW = rpmFillW;
+	lastRpmBarColor = rpmBarColor;
 
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
 	tft.setTextSize(2.5);
-    tft.setCursor(rpmBarX, rpmBarY - 25);
+    tft.setCursor(rpmBarX, rpmBarY + rpmBarH + 5);
     tft.print("RPM: ");
     tft.print(rpm);
     tft.print("    ");

@@ -17,9 +17,14 @@ Version: 1.0
 #include "TFTDisplay.h"
 #include <DHT.h>
 
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 48
+#endif
+
 // Initialize the RFID reader
 MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
 MFRC522::MIFARE_Key key;
+static const byte RFID_BLOCK = 4;
 
 // Initialize GPS
 TinyGPSPlus gps;
@@ -42,6 +47,12 @@ int CurrentGear = 0;
 
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
+bool writeArmed = false;
+unsigned long lastReadPrintMs = 0;
+unsigned long lastPollMs = 0;
+unsigned long ledOffAtMs = 0;
+unsigned long lastCardHandledMs = 0;
+unsigned long ignitionCardRearmAtMs = 0;
 
 // Tachometer pulse counting
 volatile unsigned long tachPulseCount = 0;
@@ -54,6 +65,8 @@ volatile boolean bikeIgnitionOn = false;
 unsigned long ignitionOnMillis = 0;
 bool ignitionTimerActive = false;
 const unsigned long IGNITION_RPM_TIMEOUT_MS = 60000; // 60 seconds
+const unsigned long RFID_READ_COOLDOWN_MS = 1000;
+const unsigned long IGNITION_CARD_REARM_MS = 3000;
 const int RPM_THRESHOLD = 300;
 
 // Display update timing
@@ -69,8 +82,13 @@ void tachISR() {
   tachPulseCount++;
 }
 
+void pulseLed(unsigned long ms) {
+  digitalWrite(LED_BUILTIN, HIGH);
+  ledOffAtMs = millis() + ms;
+}
+
 // ISR for IRQ pin interrupt
-void irqHandler() {
+void IRAM_ATTR irqHandler() {
   irqFlag = true;
 }
 
@@ -98,68 +116,144 @@ int getGearFromVoltage(int rawValue) {
   return 6;
 }
 
-// Function to read PICC from MFRC522 and check if it reads 0x23
-boolean readPICC() {
-  // Check if interrupt flag is set
-  if (!irqFlag) {
+void clearRfidIrqFlags() {
+  mfrc522.PCD_WriteRegister(MFRC522::ComIrqReg, 0x7F);
+}
+
+void enableRfidIrq() {
+  mfrc522.PCD_WriteRegister(MFRC522::ComIEnReg, 0xA0);
+  clearRfidIrqFlags();
+}
+
+bool authBlock(byte block) {
+  MFRC522::StatusCode status = mfrc522.PCD_Authenticate(
+      MFRC522::PICC_CMD_MF_AUTH_KEY_A,
+      block,
+      &key,
+      &(mfrc522.uid));
+
+  return status == MFRC522::STATUS_OK;
+}
+
+bool readBlock(byte block, byte *buffer, byte &size) {
+  if (!authBlock(block)) {
+    Serial.println("RFID authentication failed.");
     return false;
   }
 
-  irqFlag = false;
-
-  // Look for new cards
-  if (!mfrc522.PICC_IsNewCardPresent()) {
+  MFRC522::StatusCode status = mfrc522.MIFARE_Read(block, buffer, &size);
+  if (status != MFRC522::STATUS_OK) {
+    Serial.println("RFID read failed.");
+    mfrc522.PCD_StopCrypto1();
     return false;
   }
 
-  // Select one of the cards
-  if (!mfrc522.PICC_ReadCardSerial()) {
-    return false;
-  }
+  return true;
+}
 
-  // Print the UID of the card
-  Serial.print("Card UID: ");
+void printUidAndBlock(byte block, const byte *buffer) {
+  Serial.print("UID:");
   for (byte i = 0; i < mfrc522.uid.size; i++) {
     Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
     Serial.print(mfrc522.uid.uidByte[i], HEX);
   }
   Serial.println();
 
-  // Check if first byte of UID is 0x23
-  boolean cardMatch = (mfrc522.uid.uidByte[0] == 0x23);
-
-  // Halt the PICC
-  mfrc522.PICC_HaltA();
-  // Stop encryption on PCD
-  mfrc522.PCD_StopCrypto1();
-
-  return cardMatch;
+  Serial.print("Block ");
+  Serial.print(block);
+  Serial.print(" hex: ");
+  for (byte i = 0; i < 16; i++) {
+    if (buffer[i] < 0x10) {
+      Serial.print('0');
+    }
+    Serial.print(buffer[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
+  pulseLed(60);
 }
 
-boolean writePICC(byte dataToWrite) {
-  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
-    Serial.println("No card present for write.");
-    return false;
-  }
-
-  byte blockAddr = 4;
-  byte buffer[16] = {0};
-  buffer[0] = dataToWrite;
-
-  if (!mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, blockAddr, &key, &(mfrc522.uid))) {
+bool writeBlockWithByte23(byte block) {
+  if (!authBlock(block)) {
     Serial.println("RFID authentication failed.");
-    mfrc522.PICC_HaltA();
-    mfrc522.PCD_StopCrypto1();
     return false;
   }
 
-  MFRC522::StatusCode status = mfrc522.MIFARE_Write(blockAddr, buffer, 16);
-  bool success = (status == MFRC522::STATUS_OK);
+  byte data[16];
+  memset(data, 0x00, sizeof(data));
+  data[0] = 0x23;
 
+  MFRC522::StatusCode status = mfrc522.MIFARE_Write(block, data, 16);
+  bool success = (status == MFRC522::STATUS_OK);
   Serial.println(success ? "RFID write successful." : "RFID write failed.");
-  mfrc522.PICC_HaltA();
+
+  if (success) {
+    pulseLed(120);
+  }
+
   mfrc522.PCD_StopCrypto1();
   return success;
+}
+
+// Function to read PICC block data from MFRC522 and check if it contains 0x23.
+boolean readPICC() {
+  if (millis() - lastCardHandledMs < RFID_READ_COOLDOWN_MS) {
+    if (irqFlag) {
+      noInterrupts();
+      irqFlag = false;
+      interrupts();
+      clearRfidIrqFlags();
+    }
+    return false;
+  }
+
+  bool triggeredByIrq = irqFlag;
+  if (triggeredByIrq) {
+    noInterrupts();
+    irqFlag = false;
+    interrupts();
+  }
+
+  if (!triggeredByIrq) {
+    if (millis() - lastPollMs < 120) {
+      return false;
+    }
+    lastPollMs = millis();
+  }
+
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return false;
+  }
+
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return false;
+  }
+
+  bool writeSuccess = false;
+  if (writeArmed) {
+    writeSuccess = writeBlockWithByte23(RFID_BLOCK);
+    writeArmed = false;
+    TFT_setWriteSuccess(writeSuccess);
+  }
+
+  byte buffer[18];
+  byte size = sizeof(buffer);
+  bool cardMatch = false;
+  if (readBlock(RFID_BLOCK, buffer, size)) {
+    cardMatch = (buffer[0] == 0x23);
+    lastCardHandledMs = millis();
+
+    if (millis() - lastReadPrintMs >= 1000) {
+      printUidAndBlock(RFID_BLOCK, buffer);
+      lastReadPrintMs = millis();
+    }
+
+    mfrc522.PCD_StopCrypto1();
+  }
+
+  mfrc522.PICC_HaltA();
+  clearRfidIrqFlags();
+  return cardMatch;
 }
 
 void setup() {
@@ -176,6 +270,11 @@ void setup() {
   // Initialize analog inputs
   analogReadResolution(12);
 
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+  pinMode(IGNITION_CONTROL_PIN, OUTPUT);
+  digitalWrite(IGNITION_CONTROL_PIN, LOW);
+
   // Initialize shared SPI bus once and keep both chip selects deasserted.
   pinMode(MFRC522_CS_PIN, OUTPUT);
   digitalWrite(MFRC522_CS_PIN, HIGH);
@@ -188,6 +287,7 @@ void setup() {
   TFT_begin();
 
   mfrc522.PCD_Init();   // Init MFRC522 card
+  mfrc522.PCD_AntennaOn();
 
   // Set the key for authentication (default key for MIFARE cards)
   for (byte i = 0; i < 6; i++) {
@@ -196,6 +296,7 @@ void setup() {
 
   // Attach interrupt handler to IRQ pin
   pinMode(MFRC522_IRQ_PIN, INPUT_PULLUP);
+  enableRfidIrq();
   attachInterrupt(digitalPinToInterrupt(MFRC522_IRQ_PIN), irqHandler, FALLING);
 
   // Tachometer input
@@ -258,37 +359,50 @@ void loop() {
 
   if (millis() - lastFuelUpdate >= FUEL_UPDATE_INTERVAL_MS) {
     lastFuelUpdate = millis();
-    TFT_Fuel_update(CurrentFuelLevel);
+    TFT_Fuel_update(33);
   }
 
   if (millis() - lastMiscUpdate >= MISC_UPDATE_INTERVAL_MS) {
     lastMiscUpdate = millis();
     TFT_Misc_update(CurrentTempF);
   }
+
+  if (ledOffAtMs != 0 && millis() >= ledOffAtMs) {
+    digitalWrite(LED_BUILTIN, LOW);
+    ledOffAtMs = 0;
+  }
   
   // Handle touch-triggered RFID write requests
   if (TFT_takeWriteRequest()) {
     Serial.println("TFT requested RFID write");
-    // Example: write 0x23 to card
-    boolean result = writePICC(0x23);
-    TFT_setWriteSuccess(result);
+    writeArmed = true;
   }
 
   // Call readPICC to check for card (interrupt-driven)
   boolean cardFound = readPICC();
 
-  // Bike turn on scenario: if card with 0x23 is detected while ignition is off, enable ignition and start watchdog timer
-  if (cardFound && !bikeIgnitionOn) {
-    Serial.println("Card with 0x23 detected!");
+  if (cardFound) {
+    if (millis() < ignitionCardRearmAtMs) {
+      cardFound = false;
+    } else if (!bikeIgnitionOn) {
+      Serial.println("Card with 0x23 detected!");
 
-    digitalWrite(IGNITION_CONTROL_PIN, HIGH); // turn on ignition relay
-    bikeIgnitionOn = true;
+      digitalWrite(IGNITION_CONTROL_PIN, HIGH); // turn on ignition relay
+      bikeIgnitionOn = true;
+      ignitionCardRearmAtMs = millis() + IGNITION_CARD_REARM_MS;
 
-    // Start the ignition-watchdog timer: engine must reach RPM threshold
-    // within IGNITION_RPM_TIMEOUT_MS or ignition will be cut.
-    ignitionOnMillis = millis();
-    ignitionTimerActive = true;
-    Serial.println("Ignition enabled; awaiting engine start (RPM>=300) for 60s.");
+      // Start the ignition-watchdog timer: engine must reach RPM threshold
+      // within IGNITION_RPM_TIMEOUT_MS or ignition will be cut.
+      ignitionOnMillis = millis();
+      ignitionTimerActive = true;
+      Serial.println("Ignition enabled; awaiting engine start (RPM>=300) for 60s.");
+    } else {
+      digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
+      bikeIgnitionOn = false;
+      ignitionTimerActive = false;
+      ignitionCardRearmAtMs = millis() + IGNITION_CARD_REARM_MS;
+      Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
+    }
   }
 
   // Safety watchdog: if ignition enabled but RPM stays below threshold
@@ -306,10 +420,4 @@ void loop() {
     }
   }
 
-  // Bike turn off scenario: if card is detected while ignition is on, cut ignition immediately
-  if (cardFound && bikeIgnitionOn) {
-    digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
-    bikeIgnitionOn = false;
-    Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
-  }
 }
