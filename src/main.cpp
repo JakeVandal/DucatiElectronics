@@ -169,6 +169,8 @@ void setup() {
     delay(10);
   }
 
+  Serial.println("Ducati Electronics System Starting...");
+
   Serial1.begin(GPSBaud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
   // Initialize analog inputs
@@ -263,7 +265,7 @@ void loop() {
     lastMiscUpdate = millis();
     TFT_Misc_update(CurrentTempF);
   }
-
+  
   // Handle touch-triggered RFID write requests
   if (TFT_takeWriteRequest()) {
     Serial.println("TFT requested RFID write");
