@@ -265,7 +265,7 @@ void drawTachometer(int rpm, float speedMph, int gear) {
     int rpmFillW = constrain((int)((rpmBarW - 2) * (rpm / (float)MAX_RPM)), 0, rpmBarW - 2);
     tft.fillRect(rpmBarX + 1, rpmBarY + 1, rpmFillW, rpmBarH - 2, TFT_RED);
 
-    // Draw tick marks every 1000 RPM
+	// Draw tick marks every 1000 RPM
     int tickHeight = rpmBarH / 3;
     int tickStartY = rpmBarY + (rpmBarH - tickHeight) / 2; // center vertically
     for (int rpm_mark = 1000; rpm_mark <= MAX_RPM; rpm_mark += 1000) {
