@@ -66,3 +66,11 @@ CHANGELOG (fixes from prior revision):
 
 // Ignition Control Pin
 #define IGNITION_CONTROL_PIN 2 // Digital output to control ignition relay
+
+// Electronic throttle pedal inputs (ADC1 capable)
+#define THROTTLE_PEDAL_SENSOR1_PIN 3  // APP sensor 1 input
+#define THROTTLE_PEDAL_SENSOR2_PIN -1 // Set to ADC pin if second sensor is wired
+
+// Electronic throttle body actuator outputs (PWM)
+#define THROTTLE_BODY_LEFT_PWM_PIN 43
+#define THROTTLE_BODY_RIGHT_PWM_PIN 44

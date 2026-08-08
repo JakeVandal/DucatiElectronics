@@ -16,6 +16,9 @@ Version: 1.0
 #include <TinyGPSPlus.h>
 #include "TFTDisplay.h"
 #include <DHT.h>
+#include "ElectronicThrottle.h"
+#include "ThrottleBodyControl.h"
+#include "FuelCommander.h"
 
 // Initialize the RFID reader
 MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
@@ -40,6 +43,34 @@ float CurrentTempF = 0.0f;
 float CurrentFuelLevel = 0.0f;
 int CurrentGear = 0;
 
+ElectronicThrottleConfig throttlePedalConfig = {
+  THROTTLE_PEDAL_SENSOR1_PIN,
+  THROTTLE_PEDAL_SENSOR2_PIN,
+  700,
+  3500,
+  700,
+  3500,
+  false,
+  0.20f,
+  0.15f
+};
+
+ThrottleBodyControlConfig throttleBodyConfig = {
+  THROTTLE_BODY_LEFT_PWM_PIN,
+  THROTTLE_BODY_RIGHT_PWM_PIN,
+  0,
+  1,
+  50,
+  16,
+  1000,
+  2000,
+  1.50f
+};
+
+ElectronicThrottle throttlePedal(throttlePedalConfig);
+ThrottleBodyControl throttleBodies(throttleBodyConfig);
+FuelCommander fuelCommander;
+
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
 
@@ -63,6 +94,9 @@ static unsigned long lastMiscUpdate = 0;
 const unsigned long TACH_UPDATE_INTERVAL_MS = 300;
 const unsigned long FUEL_UPDATE_INTERVAL_MS = 5000; // 5 seconds
 const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
+static unsigned long lastThrottleUpdate = 0;
+static unsigned long lastThrottleFaultLog = 0;
+static unsigned long lastFuelCommandLog = 0;
 
 // ISR for tachometer pulse
 void tachISR() {
@@ -174,6 +208,9 @@ void setup() {
   // Initialize analog inputs
   analogReadResolution(12);
 
+  pinMode(IGNITION_CONTROL_PIN, OUTPUT);
+  digitalWrite(IGNITION_CONTROL_PIN, LOW);
+
   // Initialize shared SPI bus once and keep both chip selects deasserted.
   pinMode(MFRC522_CS_PIN, OUTPUT);
   digitalWrite(MFRC522_CS_PIN, HIGH);
@@ -200,10 +237,17 @@ void setup() {
   pinMode(TACH_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(TACH_PIN), tachISR, RISING);
 
+  throttlePedal.begin();
+  throttleBodies.begin();
+  fuelCommander.begin(Serial);
+  lastThrottleUpdate = millis();
+
   Serial.println("RFID reader initialized. Waiting for a card...");
 }
 
 void loop() {
+  unsigned long now = millis();
+
   // Process GPS serial data
   while (Serial1.available() > 0) {
     gps.encode(Serial1.read());
@@ -247,6 +291,32 @@ void loop() {
     interrupts();
     RPMValue = pulses * 60; // pulses per second -> RPM
     lastRPMMillis += 300;
+  }
+
+  throttlePedal.update();
+  fuelCommander.processSerial();
+  bool throttleFault = throttlePedal.hasFault();
+  if (throttleFault && (now - lastThrottleFaultLog >= 1000)) {
+    lastThrottleFaultLog = now;
+    Serial.println("Throttle pedal plausibility fault; forcing throttle bodies closed.");
+  }
+
+  unsigned long throttleDt = now - lastThrottleUpdate;
+  lastThrottleUpdate = now;
+
+  bool throttleEnabled = bikeIgnitionOn && !throttleFault;
+  throttleBodies.update(throttlePedal.getThrottlePercent(), throttleDt, throttleEnabled);
+
+  // Fuel commander computes target AFR and trim from RPM + throttle load.
+  fuelCommander.update(RPMValue, throttlePedal.getThrottlePercent());
+  if (now - lastFuelCommandLog >= 1000) {
+    lastFuelCommandLog = now;
+    Serial.print("FuelCmd AFR=");
+    Serial.print(fuelCommander.getCurrentTargetAfr(), 3);
+    Serial.print(" trim=");
+    Serial.print(fuelCommander.getCurrentFuelTrimPercent(), 3);
+    Serial.print(" scale=");
+    Serial.println(fuelCommander.getCurrentFuelScale(), 3);
   }
 
   if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
@@ -305,7 +375,7 @@ void loop() {
   }
 
   // Bike turn off scenario: if card is detected while ignition is on, cut ignition immediately
-  if (cardFound && bikeIgnitionOn) {
+  else if (cardFound && bikeIgnitionOn) {
     digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
     bikeIgnitionOn = false;
     Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
