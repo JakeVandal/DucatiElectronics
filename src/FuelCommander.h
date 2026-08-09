@@ -6,7 +6,7 @@
 class FuelCommander {
 public:
   static const int kRpmBins = 41;
-  static const int kLoadBins = 6;
+  static const int kLoadBins = 21;
 
   FuelCommander();
 

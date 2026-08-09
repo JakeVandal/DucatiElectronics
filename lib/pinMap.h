@@ -74,3 +74,16 @@ CHANGELOG (fixes from prior revision):
 // Electronic throttle body actuator outputs (PWM)
 #define THROTTLE_BODY_LEFT_PWM_PIN 43
 #define THROTTLE_BODY_RIGHT_PWM_PIN 44
+
+// Power commander injector signal paths (one per cylinder)
+#define INJECTOR1_SIGNAL_IN_PIN 45
+#define INJECTOR1_SIGNAL_OUT_PIN 46
+#define INJECTOR2_SIGNAL_IN_PIN 47
+#define INJECTOR2_SIGNAL_OUT_PIN 48
+
+// Backward-compatible aliases for single-injector naming.
+#define INJECTOR_SIGNAL_IN_PIN INJECTOR1_SIGNAL_IN_PIN
+#define INJECTOR_SIGNAL_OUT_PIN INJECTOR1_SIGNAL_OUT_PIN
+
+// Optional wideband analog input (set to ADC1 pin to enable, or keep -1 to disable)
+#define WIDEBAND_AFR_PIN -1

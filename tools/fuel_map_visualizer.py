@@ -13,6 +13,7 @@ from typing import List
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.patches import Rectangle
 from matplotlib.widgets import RectangleSelector
 
 
@@ -67,28 +68,33 @@ def render(df: pd.DataFrame) -> None:
 
   fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
 
+  x_major_ticks = [i for i in range(len(afr.columns)) if i % 2 == 0]
+  y_major_ticks = [i for i in range(len(afr.index)) if i % 5 == 0]
+
   im0 = axes[0].imshow(afr.values, aspect="auto", origin="lower", cmap="viridis")
   axes[0].set_title("Target AFR")
   axes[0].set_xlabel("Load")
   axes[0].set_ylabel("RPM")
-  axes[0].set_xticks(range(len(afr.columns)), labels=[f"{x:.2f}" for x in afr.columns])
-  axes[0].set_yticks(range(len(afr.index)), labels=[str(x) for x in afr.index])
+  axes[0].set_xticks(x_major_ticks, labels=[f"{afr.columns[i]:.2f}" for i in x_major_ticks])
+  axes[0].set_yticks(y_major_ticks, labels=[str(afr.index[i]) for i in y_major_ticks])
   axes[0].set_xticks([x - 0.5 for x in range(1, len(afr.columns))], minor=True)
   axes[0].set_yticks([y - 0.5 for y in range(1, len(afr.index))], minor=True)
   axes[0].grid(which="minor", color="white", linestyle="-", linewidth=0.5, alpha=0.6)
   axes[0].tick_params(which="minor", bottom=False, left=False)
+  axes[0].tick_params(axis="x", labelrotation=45)
   fig.colorbar(im0, ax=axes[0], label="AFR")
 
   im1 = axes[1].imshow(trim.values, aspect="auto", origin="lower", cmap="coolwarm")
   axes[1].set_title("Fuel Trim (%)")
   axes[1].set_xlabel("Load")
   axes[1].set_ylabel("RPM")
-  axes[1].set_xticks(range(len(trim.columns)), labels=[f"{x:.2f}" for x in trim.columns])
-  axes[1].set_yticks(range(len(trim.index)), labels=[str(x) for x in trim.index])
+  axes[1].set_xticks(x_major_ticks, labels=[f"{trim.columns[i]:.2f}" for i in x_major_ticks])
+  axes[1].set_yticks(y_major_ticks, labels=[str(trim.index[i]) for i in y_major_ticks])
   axes[1].set_xticks([x - 0.5 for x in range(1, len(trim.columns))], minor=True)
   axes[1].set_yticks([y - 0.5 for y in range(1, len(trim.index))], minor=True)
   axes[1].grid(which="minor", color="white", linestyle="-", linewidth=0.5, alpha=0.6)
   axes[1].tick_params(which="minor", bottom=False, left=False)
+  axes[1].tick_params(axis="x", labelrotation=45)
   fig.colorbar(im1, ax=axes[1], label="Trim %")
 
   selection = {
@@ -98,8 +104,37 @@ def render(df: pd.DataFrame) -> None:
     "c1": len(afr.columns) - 1,
   }
 
+  selection_patch = Rectangle(
+    (-0.5, -0.5),
+    len(afr.columns),
+    len(afr.index),
+    fill=False,
+    edgecolor="yellow",
+    linewidth=2.0,
+  )
+  axes[0].add_patch(selection_patch)
+
   def clamp_index(value: float, high: int) -> int:
     return max(0, min(high, int(round(value))))
+
+  def update_selection_display() -> None:
+    width = selection["c1"] - selection["c0"] + 1
+    height = selection["r1"] - selection["r0"] + 1
+    selection_patch.set_xy((selection["c0"] - 0.5, selection["r0"] - 0.5))
+    selection_patch.set_width(width)
+    selection_patch.set_height(height)
+    fig.canvas.draw_idle()
+
+  def set_selection(r0: int, r1: int, c0: int, c1: int) -> None:
+    selection["r0"] = min(r0, r1)
+    selection["r1"] = max(r0, r1)
+    selection["c0"] = min(c0, c1)
+    selection["c1"] = max(c0, c1)
+    print(
+      f"Selected AFR section: rpm_idx={selection['r0']}:{selection['r1']}, "
+      f"load_idx={selection['c0']}:{selection['c1']}"
+    )
+    update_selection_display()
 
   def on_select(eclick, erelease) -> None:
     if eclick.xdata is None or eclick.ydata is None or erelease.xdata is None or erelease.ydata is None:
@@ -110,19 +145,23 @@ def render(df: pd.DataFrame) -> None:
     r0 = clamp_index(min(eclick.ydata, erelease.ydata), len(afr.index) - 1)
     r1 = clamp_index(max(eclick.ydata, erelease.ydata), len(afr.index) - 1)
 
-    selection["r0"] = r0
-    selection["r1"] = r1
-    selection["c0"] = c0
-    selection["c1"] = c1
-    print(f"Selected AFR section: rpm_idx={r0}:{r1}, load_idx={c0}:{c1}")
+    set_selection(r0, r1, c0, c1)
+
+  def on_click(event) -> None:
+    if event.inaxes != axes[0] or event.xdata is None or event.ydata is None:
+      return
+
+    c = clamp_index(event.xdata, len(afr.columns) - 1)
+    r = clamp_index(event.ydata, len(afr.index) - 1)
+    set_selection(r, r, c, c)
 
   selector = RectangleSelector(
     axes[0],
     on_select,
     useblit=True,
     button=[1],
-    minspanx=0.5,
-    minspany=0.5,
+    minspanx=0.0,
+    minspany=0.0,
     spancoords="data",
     interactive=True,
   )
@@ -149,6 +188,7 @@ def render(df: pd.DataFrame) -> None:
       adjust_selected_afr(-0.1)
       print("Adjusted selected AFR section by -0.1 (richer).")
 
+  fig.canvas.mpl_connect("button_press_event", on_click)
   fig.canvas.mpl_connect("key_press_event", on_key)
 
   def save_back_to_df() -> None:
@@ -163,6 +203,7 @@ def render(df: pd.DataFrame) -> None:
   fig.canvas.mpl_connect("close_event", on_close)
 
   print("Drag on Target AFR plot to select a section.")
+  print("Click a single AFR cell for individual-cell edits.")
   print("Use '+' for +0.1 AFR (leaner), '-' for -0.1 AFR (richer).")
   print("Close the plot window to commit visual edits in memory before --write.")
 

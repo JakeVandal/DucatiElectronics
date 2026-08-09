@@ -11,9 +11,11 @@ This project now includes a basic fuel commander table for tuning AFR and trim a
 ### Firmware behavior
 
 - Uses RPM and throttle position as map axes.
+- Load is normalized throttle opening from 0.00 (closed) to 1.00 (wide open).
 - Computes interpolated target AFR and fuel trim percent.
 - Exposes serial commands for quick table edits during bench tuning.
 - Default map grid is 0-8000 RPM in 200 RPM increments.
+- Default load grid is 0.00-1.00 in 0.05 increments.
 
 Serial commands at 115200 baud:
 
@@ -45,7 +47,8 @@ python tools/fuel_map_visualizer.py --csv config/fuel_map.csv
 
 Interactive plot controls:
 
-- Drag a rectangle on the **Target AFR** heatmap to select a section.
+- Click a single AFR cell to select one cell.
+- Drag a rectangle on the **Target AFR** heatmap to select multiple cells.
 - Press `+` to increase AFR in the selected section by 0.1 (leaner).
 - Press `-` to decrease AFR in the selected section by 0.1 (richer).
 - Run with `--write`, make edits, then close the plot window to save updated values.
@@ -63,3 +66,31 @@ python tools/fuel_map_visualizer.py --csv config/fuel_map.csv --export-cpp --no-
 ```
 
 Safety note: validate all AFR targets and trims on a bench or dyno with wideband O2 feedback before road use.
+
+## Power Commander Layer (Injector Path)
+
+The project now includes a prototype injector rewrite layer that sits in the injector signal path.
+
+- Module: `src/PowerCommander.h` and `src/PowerCommander.cpp`
+- Integration: `src/main.cpp`
+- Pin definitions: `lib/pinMap.h`
+
+### Implemented behavior
+
+- Measures injector pulse width from an injector input signal.
+- Applies fuel map scale from `FuelCommander` to injector pulse duration.
+- Applies optional closed-loop correction from a wideband AFR analog input.
+- Provides pass-through fallback mode on internal or external faults.
+- Streams runtime diagnostics over serial (mode, fault, AFR, trims, base/corrected pulse widths).
+
+### Pin defaults
+
+- `INJECTOR1_SIGNAL_IN_PIN` = 45
+- `INJECTOR1_SIGNAL_OUT_PIN` = 46
+- `INJECTOR2_SIGNAL_IN_PIN` = 47
+- `INJECTOR2_SIGNAL_OUT_PIN` = 48
+- `WIDEBAND_AFR_PIN` = -1 (disabled by default; set to an ADC1 pin to enable)
+
+### Important prototype note
+
+This layer is designed as a development prototype. Before road use, validate timing and failover behavior with bench instrumentation (scope/logic analyzer) and wideband feedback under controlled conditions.

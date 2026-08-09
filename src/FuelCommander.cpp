@@ -4,14 +4,12 @@ FuelCommander::FuelCommander()
   : serial_(nullptr),
     currentTargetAfr_(14.7f),
     currentFuelTrimPercent_(0.0f) {
-  const float loadDefaults[kLoadBins] = { 0.05f, 0.20f, 0.40f, 0.60f, 0.80f, 1.00f };
-
   for (int i = 0; i < kRpmBins; ++i) {
     rpmBins_[i] = i * 200;
   }
 
   for (int j = 0; j < kLoadBins; ++j) {
-    loadBins_[j] = loadDefaults[j];
+    loadBins_[j] = (float)j * 0.05f;
   }
 
   for (int i = 0; i < kRpmBins; ++i) {

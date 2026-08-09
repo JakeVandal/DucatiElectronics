@@ -19,6 +19,7 @@ Version: 1.0
 #include "ElectronicThrottle.h"
 #include "ThrottleBodyControl.h"
 #include "FuelCommander.h"
+#include "PowerCommander.h"
 
 // Initialize the RFID reader
 MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
@@ -71,6 +72,22 @@ ElectronicThrottle throttlePedal(throttlePedalConfig);
 ThrottleBodyControl throttleBodies(throttleBodyConfig);
 FuelCommander fuelCommander;
 
+PowerCommanderConfig powerCommanderConfig = {
+  { INJECTOR1_SIGNAL_IN_PIN, INJECTOR2_SIGNAL_IN_PIN },
+  { INJECTOR1_SIGNAL_OUT_PIN, INJECTOR2_SIGNAL_OUT_PIN },
+  WIDEBAND_AFR_PIN,
+  0,
+  4095,
+  10.0f,
+  20.0f,
+  0.05f,
+  15.0f,
+  500,
+  20000
+};
+
+PowerCommander powerCommander(powerCommanderConfig, fuelCommander);
+
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
 
@@ -97,6 +114,7 @@ const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
 static unsigned long lastThrottleUpdate = 0;
 static unsigned long lastThrottleFaultLog = 0;
 static unsigned long lastFuelCommandLog = 0;
+static unsigned long lastPowerCommanderLog = 0;
 
 // ISR for tachometer pulse
 void tachISR() {
@@ -240,6 +258,7 @@ void setup() {
   throttlePedal.begin();
   throttleBodies.begin();
   fuelCommander.begin(Serial);
+  powerCommander.begin();
   lastThrottleUpdate = millis();
 
   Serial.println("RFID reader initialized. Waiting for a card...");
@@ -309,6 +328,13 @@ void loop() {
 
   // Fuel commander computes target AFR and trim from RPM + throttle load.
   fuelCommander.update(RPMValue, throttlePedal.getThrottlePercent());
+
+  // Power commander applies the fuel map scale and optional closed-loop AFR correction
+  // onto the injector pulse path. It fails safe to pass-through on faults.
+  powerCommander.setExternalFault(throttleFault);
+  powerCommander.setEnabled(bikeIgnitionOn && !throttleFault);
+  powerCommander.update(RPMValue, throttlePedal.getThrottlePercent());
+
   if (now - lastFuelCommandLog >= 1000) {
     lastFuelCommandLog = now;
     Serial.print("FuelCmd AFR=");
@@ -317,6 +343,26 @@ void loop() {
     Serial.print(fuelCommander.getCurrentFuelTrimPercent(), 3);
     Serial.print(" scale=");
     Serial.println(fuelCommander.getCurrentFuelScale(), 3);
+  }
+
+  if (now - lastPowerCommanderLog >= 1000) {
+    lastPowerCommanderLog = now;
+    Serial.print("PC mode=");
+    Serial.print(powerCommander.isPassThroughMode() ? "PASS" : "ACTIVE");
+    Serial.print(" fault=");
+    Serial.print(powerCommander.hasFault() ? "1" : "0");
+    Serial.print(" wbAFR=");
+    Serial.print(powerCommander.getMeasuredAfr(), 3);
+    Serial.print(" clTrim=");
+    Serial.print(powerCommander.getClosedLoopTrimPercent(), 3);
+    Serial.print(" base1=");
+    Serial.print(powerCommander.getLastBasePulseUs(0));
+    Serial.print(" cmd1=");
+    Serial.print(powerCommander.getLastCommandedPulseUs(0));
+    Serial.print(" base2=");
+    Serial.print(powerCommander.getLastBasePulseUs(1));
+    Serial.print(" cmd2=");
+    Serial.println(powerCommander.getLastCommandedPulseUs(1));
   }
 
   if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
