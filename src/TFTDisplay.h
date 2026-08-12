@@ -17,5 +17,7 @@ void TFT_prevPage();
 void TFT_requestWrite();
 void TFT_setWriteSuccess(bool success);
 bool TFT_takeWriteRequest();
+void TFT_drawTurnSignal(bool leftOn, bool rightOn, bool hazardOn);
+void TFT_drawLightIndicator(bool highOn, bool lowOn);
 
 #endif // TFTDISPLAY_H

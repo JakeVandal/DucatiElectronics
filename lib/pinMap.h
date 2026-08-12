@@ -62,7 +62,24 @@ CHANGELOG (fixes from prior revision):
 #define TOUCH_SDA 8            // I2C SDA for touch controller
 #define TOUCH_SCL 39           // I2C SCL for touch controller (moved from 9 - conflicted with MFRC522_RST)
 #define TOUCH_INT_PIN 4        // Interrupt pin for touch controller
-#define TOUCH_RST_PIN 47       // Reset pin for touch controller (optional) - moved from 22, which doesn't exist on ESP32-S3 (GPIO22-25 are skipped on this chip)
+#define TOUCH_RST_PIN -1       // Optional touch reset; set to -1 when not connected
 
 // Ignition Control Pin
 #define IGNITION_CONTROL_PIN 2 // Digital output to control ignition relay
+
+// Turn Signal Inputs
+#define TURN_SIGNAL_LEFT_PIN 43  // Left turn signal input
+#define TURN_SIGNAL_RIGHT_PIN 44 // Right turn signal input
+#define HAZARD_PIN 45            // Hazard signal input
+
+// Headlight Inputs
+#define HIGH_BEAM_PIN 46         // High beam input
+#define LOW_BEAM_PIN 47          // Low beam input
+
+// Headlight Outputs (RELAYS)
+#define HIGH_BEAM_RELAY_PIN 48   // High beam relay control output
+#define LOW_BEAM_RELAY_PIN 49    // Low beam relay control output
+
+// Blinker Outputs (RELAYS)
+#define LEFT_BLINKER_RELAY_PIN 50  // Left blinker relay control output
+#define RIGHT_BLINKER_RELAY_PIN 51 // Right blinker relay control output

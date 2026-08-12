@@ -3,7 +3,7 @@ This is the main file for the Ducati Electronics project. It initializes the RFI
 and contains the main loop for reading RFID tags and controlling the LEDs based on the tag's status. The program uses 
 the MFRC522 library for interfacing with the RFID reader and SPI communication.
 
-Last Updated: 6/2/2026
+Last Updated: 8/11/2026
 
 Version: 1.0
 
@@ -15,6 +15,7 @@ Version: 1.0
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
 #include "TFTDisplay.h"
+#include "RelayControl.h"
 #include <DHT.h>
 
 #ifndef LED_BUILTIN
@@ -77,9 +78,54 @@ const unsigned long TACH_UPDATE_INTERVAL_MS = 300;
 const unsigned long FUEL_UPDATE_INTERVAL_MS = 5000; // 5 seconds
 const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
 
+static bool lastTurnSignalLeft = false;
+static bool lastTurnSignalRight = false;
+static bool leftTurnSignalFlag = false;
+static bool rightTurnSignalFlag = false;
+static bool highBeamFlag = false;
+static bool lowBeamFlag = false;
+static bool hazardFlag = false;
+static bool lastHighBeam = false;
+static bool lastLowBeam = false;
+static bool lastHazard = false;
+volatile bool highBeamToggleRequested = false;
+volatile bool highBeamInputWasActive = false;
+const unsigned long BLINKER_INTERVAL_MS = 500; // 500 ms for blinker toggle
+static unsigned long lastBlinkerToggleMs = 0;
+static bool blinkerOn = false;
+
+static inline bool readActiveLowPin(uint8_t pin) {
+  return digitalRead(pin) == LOW;
+}
+
+
 // ISR for tachometer pulse
 void tachISR() {
   tachPulseCount++;
+}
+
+void leftTurnSignalISR() {
+  leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
+}
+
+void rightTurnSignalISR() {
+  rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
+}
+
+void highBeamIndicatorISR() {
+  bool isActive = readActiveLowPin(HIGH_BEAM_PIN);
+  if (isActive && !highBeamInputWasActive) {
+    highBeamToggleRequested = true;
+  }
+  highBeamInputWasActive = isActive;
+}
+
+void lowBeamIndicatorISR() {
+  // Low beam is derived from high-beam mode: on when high beam is off.
+}
+
+void hazardIndicatorISR() {
+  hazardFlag = readActiveLowPin(HAZARD_PIN);
 }
 
 void pulseLed(unsigned long ms) {
@@ -303,6 +349,36 @@ void setup() {
   pinMode(TACH_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(TACH_PIN), tachISR, RISING);
 
+  pinMode(TURN_SIGNAL_LEFT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TURN_SIGNAL_LEFT_PIN), leftTurnSignalISR, CHANGE);
+
+  pinMode(TURN_SIGNAL_RIGHT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TURN_SIGNAL_RIGHT_PIN), rightTurnSignalISR, CHANGE);
+
+  pinMode(HIGH_BEAM_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(HIGH_BEAM_PIN), highBeamIndicatorISR, CHANGE);
+
+  pinMode(LOW_BEAM_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(LOW_BEAM_PIN), lowBeamIndicatorISR, CHANGE);
+
+  pinMode(HAZARD_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(HAZARD_PIN), hazardIndicatorISR, CHANGE);
+
+  // Prime indicator states from current input levels before any first interrupt.
+  leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
+  rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
+  highBeamInputWasActive = readActiveLowPin(HIGH_BEAM_PIN);
+  highBeamFlag = false;
+  lowBeamFlag = true;
+  hazardFlag = readActiveLowPin(HAZARD_PIN);
+
+  // Force one initial light draw in loop so low beam appears at startup.
+  lastHighBeam = !highBeamFlag;
+  lastLowBeam = !lowBeamFlag;
+
+  // Initialize relay control system
+  relayControl_init();
+
   Serial.println("RFID reader initialized. Waiting for a card...");
 }
 
@@ -359,7 +435,7 @@ void loop() {
 
   if (millis() - lastFuelUpdate >= FUEL_UPDATE_INTERVAL_MS) {
     lastFuelUpdate = millis();
-    TFT_Fuel_update(33);
+    TFT_Fuel_update(CurrentFuelLevel);
   }
 
   if (millis() - lastMiscUpdate >= MISC_UPDATE_INTERVAL_MS) {
@@ -370,6 +446,52 @@ void loop() {
   if (ledOffAtMs != 0 && millis() >= ledOffAtMs) {
     digitalWrite(LED_BUILTIN, LOW);
     ledOffAtMs = 0;
+  }
+
+  bool anyBlinkerActive = leftTurnSignalFlag || rightTurnSignalFlag || hazardFlag;
+  if (anyBlinkerActive && millis() - lastBlinkerToggleMs >= BLINKER_INTERVAL_MS) {
+    lastBlinkerToggleMs = millis();
+    blinkerOn = !blinkerOn;
+  } else if (!anyBlinkerActive) {
+    blinkerOn = false;
+  }
+
+  // Query actual relay control state for turn signal display
+  bool leftBlinkerState = relayControl_getLeftBlinkerActive();
+  bool rightBlinkerState = relayControl_getRightBlinkerActive();
+  
+  // Create blinking animation for active blinkers
+  bool drawLeftSignal = blinkerOn && leftBlinkerState;
+  bool drawRightSignal = blinkerOn && rightBlinkerState;
+  bool drawHazard = hazardFlag && blinkerOn;
+  if (drawLeftSignal != lastTurnSignalLeft || drawRightSignal != lastTurnSignalRight || drawHazard != lastHazard) {
+    lastTurnSignalLeft = drawLeftSignal;
+    lastTurnSignalRight = drawRightSignal;
+    lastHazard = drawHazard;
+    TFT_drawTurnSignal(drawLeftSignal, drawRightSignal, drawHazard);
+  }
+
+  bool toggleHighBeam = false;
+  noInterrupts();
+  if (highBeamToggleRequested) {
+    highBeamToggleRequested = false;
+    toggleHighBeam = true;
+  }
+  interrupts();
+
+  if (toggleHighBeam) {
+    highBeamFlag = !highBeamFlag;
+    lowBeamFlag = !highBeamFlag;
+  }
+
+  // Query actual relay control state for display updates
+  // This ensures display always shows what the relays are actually doing
+  bool effectiveHighBeam = relayControl_getHighBeamActive();
+  bool effectiveLowBeam = relayControl_getLowBeamActive();
+  if (effectiveHighBeam != lastHighBeam || effectiveLowBeam != lastLowBeam) {
+    lastHighBeam = effectiveHighBeam;
+    lastLowBeam = effectiveLowBeam;
+    TFT_drawLightIndicator(effectiveHighBeam, effectiveLowBeam);
   }
   
   // Handle touch-triggered RFID write requests
@@ -419,5 +541,8 @@ void loop() {
       ignitionTimerActive = false;
     }
   }
+
+  // Update relay control (headlights and blinkers)
+  relayControl_update();
 
 }
