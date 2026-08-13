@@ -449,7 +449,7 @@ void loop() {
   if (latestPulseMs != lastProcessedSpeedPulseMs && previousPulseMs > 0 && latestPulseMs > previousPulseMs) {
     unsigned long pulseDeltaMs = latestPulseMs - previousPulseMs;
     const float milesPerRev = WHEEL_CIRCUMFERENCE_CM / 160934.4f;
-    const float pulsePeriodHours = (pulseDeltaMs * SPEED_PULSES_PER_REV) / 3600000.0f;
+    const float pulsePeriodHours = (static_cast<float>(pulseDeltaMs) * static_cast<float>(SPEED_PULSES_PER_REV)) / 3600000.0f;
     float instantMph = milesPerRev / pulsePeriodHours;
 
     // Simple low-pass filter for a stable readout.
