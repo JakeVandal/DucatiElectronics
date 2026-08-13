@@ -80,11 +80,11 @@ const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
 
 static bool lastTurnSignalLeft = false;
 static bool lastTurnSignalRight = false;
-static bool leftTurnSignalFlag = false;
-static bool rightTurnSignalFlag = false;
+static volatile bool leftTurnSignalFlag = false;
+static volatile bool rightTurnSignalFlag = false;
 static bool highBeamFlag = false;
 static bool lowBeamFlag = false;
-static bool hazardFlag = false;
+static volatile bool hazardFlag = false;
 static bool lastHighBeam = false;
 static bool lastLowBeam = false;
 static bool lastHazard = false;
