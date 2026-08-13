@@ -463,18 +463,17 @@ void loop() {
     ledOffAtMs = 0;
   }
 
-  bool anyBlinkerActive = leftTurnSignalFlag || rightTurnSignalFlag || hazardFlag;
+  // Query relay control state first so animation follows the toggle-style blinker logic.
+  bool leftBlinkerState = relayControl_getLeftBlinkerActive();
+  bool rightBlinkerState = relayControl_getRightBlinkerActive();
+
+  bool anyBlinkerActive = leftBlinkerState || rightBlinkerState || hazardFlag;
   if (anyBlinkerActive && millis() - lastBlinkerToggleMs >= BLINKER_INTERVAL_MS) {
     lastBlinkerToggleMs = millis();
     blinkerOn = !blinkerOn;
   } else if (!anyBlinkerActive) {
     blinkerOn = false;
   }
-
-  // Query actual relay control state for turn signal display
-  bool leftBlinkerState = relayControl_getLeftBlinkerActive();
-  bool rightBlinkerState = relayControl_getRightBlinkerActive();
-  
   // Create blinking animation for active blinkers
   bool drawLeftSignal = blinkerOn && leftBlinkerState;
   bool drawRightSignal = blinkerOn && rightBlinkerState;
