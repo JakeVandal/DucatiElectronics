@@ -8,7 +8,7 @@ Defines pin assignments for all hardware modules using the ESP32-S3 core.
 - TFT Display -> SPI (shares bus with MFRC522)
 - TFT Capacitive Touch Controller -> I2C
 
-Last Updated: 7/12/2026
+Last Updated: 8/13/2026
 
 CHANGELOG (fixes from prior revision):
 - GPIO9 conflict resolved: MFRC522_RST moved to 38, TOUCH_SCL moved to 39
@@ -19,6 +19,11 @@ CHANGELOG (fixes from prior revision):
 - TOUCH_RST_PIN moved from GPIO22 to GPIO47 (GPIO22-25 don't exist on the ESP32-S3 chip)
 - MFRC522 and TFT intentionally share the SPI bus (MOSI/MISO/SCK) with separate
   CS pins -- this is valid SPI usage, not a conflict
+- Relay outputs reassigned: GPIO48-51 were invalid (ESP32-S3 max is GPIO48, and 49-51
+  do not exist). HIGH_BEAM_RELAY moved to GPIO0 (valid output post-boot strapping),
+  LOW_BEAM_RELAY to GPIO19, LEFT_BLINKER_RELAY to GPIO20, RIGHT_BLINKER_RELAY to GPIO48.
+  GPIO19/20 are USB D-/D+ but are available as general GPIO when USB CDC is disabled
+  (appropriate for a deployed motorcycle unit).
 */
 
 // MFRC522 RFID Reader - SPI (shares bus with TFT)
@@ -77,10 +82,11 @@ CHANGELOG (fixes from prior revision):
 #define LOW_BEAM_PIN 47          // Low beam input
 
 // Headlight Outputs (RELAYS)
-#define HIGH_BEAM_RELAY_PIN 48   // High beam relay control output
-#define LOW_BEAM_RELAY_PIN 49    // Low beam relay control output
+// Note: GPIO19/20 are USB D-/D+ but are usable as general GPIO when USB CDC is disabled (deployed unit)
+#define HIGH_BEAM_RELAY_PIN 0    // High beam relay control output (GPIO0: valid output after boot)
+#define LOW_BEAM_RELAY_PIN 19    // Low beam relay control output (GPIO19: usable when USB CDC disabled)
 
 // Blinker Outputs (RELAYS)
-#define LEFT_BLINKER_RELAY_PIN 50  // Left blinker relay control output
-#define RIGHT_BLINKER_RELAY_PIN 51 // Right blinker relay control output
+#define LEFT_BLINKER_RELAY_PIN 20  // Left blinker relay control output (GPIO20: usable when USB CDC disabled)
+#define RIGHT_BLINKER_RELAY_PIN 48 // Right blinker relay control output
 #define ANALOG_SPEED_PIN 3       // Speed sensor input (GPIO interrupt on hall pulse)
