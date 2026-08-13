@@ -67,4 +67,4 @@ CHANGELOG (fixes from prior revision):
 // Ignition Control Pin
 #define IGNITION_CONTROL_PIN 2 // Digital output to control ignition relay
 
-#define ANALOG_SPEED_PIN 3       // Analog input for speed sensor
+#define ANALOG_SPEED_PIN 3       // Speed sensor input (GPIO interrupt on hall pulse)
