@@ -29,16 +29,20 @@ static const unsigned long debounceDelay = 50; // 50ms debounce
 // Helper function to handle debouncing
 bool isButtonPressed(int pin) {
     static unsigned long lastPressTime[52] = {0}; // Array to track press time per pin
-    static bool lastState[52] = {true}; // Last state per pin (true = not pressed)
-    
-    bool currentState = digitalRead(pin) == LOW; // LOW means pressed
-    
+    static bool lastState[52] = {false}; // false = not pressed (active-low inputs)
+
+    if (pin < 0 || pin >= (int)(sizeof(lastPressTime) / sizeof(lastPressTime[0]))) {
+        return false;
+    }
+
+    bool currentState = digitalRead(pin) == LOW; // true when pressed (active-low)
+
     if (currentState != lastState[pin]) {
         lastPressTime[pin] = millis();
     }
-    
+
     lastState[pin] = currentState;
-    
+
     // Button is considered pressed if LOW for longer than debounce delay
     if (currentState && (millis() - lastPressTime[pin]) > debounceDelay) {
         return true;
