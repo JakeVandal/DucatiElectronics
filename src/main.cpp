@@ -112,11 +112,11 @@ void tachISR() {
   tachPulseCount++;
 }
 
-void leftTurnSignalISR() {
+void IRAM_ATTR leftTurnSignalISR() {
   leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
 }
 
-void rightTurnSignalISR() {
+void IRAM_ATTR rightTurnSignalISR() {
   rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
 }
 
