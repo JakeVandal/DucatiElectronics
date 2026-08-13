@@ -98,6 +98,14 @@ static inline bool readActiveLowPin(uint8_t pin) {
   return digitalRead(pin) == LOW;
 }
 
+// Speedometer variables (hall sensor + 6 magnets)
+static const float WHEEL_CIRCUMFERENCE_CM = 210.0f; // Tune to measured tire rollout.
+static const int SPEED_PULSES_PER_REV = 6;          // 6 equally spaced magnets.
+static const unsigned long SPEED_STALE_TIMEOUT_MS = 1500;
+volatile unsigned long speedPulseMs = 0;
+volatile unsigned long lastSpeedPulseMs = 0;
+float AnalogSpeedMph = 0.0f;
+unsigned long lastProcessedSpeedPulseMs = 0;
 
 // ISR for tachometer pulse
 void tachISR() {
@@ -126,6 +134,10 @@ void lowBeamIndicatorISR() {
 
 void hazardIndicatorISR() {
   hazardFlag = readActiveLowPin(HAZARD_PIN);
+void IRAM_ATTR analogSpeedISR() {
+  unsigned long nowMs = millis();
+  lastSpeedPulseMs = speedPulseMs;
+  speedPulseMs = nowMs;
 }
 
 void pulseLed(unsigned long ms) {
@@ -321,6 +333,9 @@ void setup() {
   pinMode(IGNITION_CONTROL_PIN, OUTPUT);
   digitalWrite(IGNITION_CONTROL_PIN, LOW);
 
+  pinMode(ANALOG_SPEED_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(ANALOG_SPEED_PIN), analogSpeedISR, RISING);
+
   // Initialize shared SPI bus once and keep both chip selects deasserted.
   pinMode(MFRC522_CS_PIN, OUTPUT);
   digitalWrite(MFRC522_CS_PIN, HIGH);
@@ -430,7 +445,7 @@ void loop() {
 
   if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
     lastTachUpdate = millis();
-    TFT_Tach_update(RPMValue, GPSSpeedMph, CurrentGear);
+    TFT_Tach_update(RPMValue, AnalogSpeedMph, CurrentGear);
   }
 
   if (millis() - lastFuelUpdate >= FUEL_UPDATE_INTERVAL_MS) {
@@ -544,5 +559,28 @@ void loop() {
 
   // Update relay control (headlights and blinkers)
   relayControl_update();
+  
+  // Convert hall pulses to mph: each pulse is 1/SPEED_PULSES_PER_REV of a wheel revolution.
+  unsigned long latestPulseMs;
+  unsigned long previousPulseMs;
+  noInterrupts();
+  latestPulseMs = speedPulseMs;
+  previousPulseMs = lastSpeedPulseMs;
+  interrupts();
 
+  if (latestPulseMs != lastProcessedSpeedPulseMs && previousPulseMs > 0 && latestPulseMs > previousPulseMs) {
+    unsigned long pulseDeltaMs = latestPulseMs - previousPulseMs;
+    const float milesPerRev = WHEEL_CIRCUMFERENCE_CM / 160934.4f;
+    const float pulsePeriodHours = (static_cast<float>(pulseDeltaMs) * static_cast<float>(SPEED_PULSES_PER_REV)) / 3600000.0f;
+    float instantMph = milesPerRev / pulsePeriodHours;
+
+    // Simple low-pass filter for a stable readout.
+    AnalogSpeedMph = (AnalogSpeedMph * 0.65f) + (instantMph * 0.35f);
+    lastProcessedSpeedPulseMs = latestPulseMs;
+  }
+
+  // If pulses stop, bring displayed speed to zero.
+  if (latestPulseMs == 0 || (millis() - latestPulseMs) > SPEED_STALE_TIMEOUT_MS) {
+    AnalogSpeedMph = 0.0f;
+  }
 }

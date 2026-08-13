@@ -83,3 +83,4 @@ CHANGELOG (fixes from prior revision):
 // Blinker Outputs (RELAYS)
 #define LEFT_BLINKER_RELAY_PIN 50  // Left blinker relay control output
 #define RIGHT_BLINKER_RELAY_PIN 51 // Right blinker relay control output
+#define ANALOG_SPEED_PIN 3       // Speed sensor input (GPIO interrupt on hall pulse)
