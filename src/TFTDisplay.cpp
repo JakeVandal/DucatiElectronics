@@ -51,6 +51,67 @@ void drawMisc(float tempF);
 void drawRFIDWriterPage();
 void drawWriteButton(bool pressed);
 
+static const int TURN_ICON_W = 56;
+static const int TURN_ICON_H = 48;
+static const int BEAM_ICON_W = 38;
+static const int BEAM_ICON_H = 28;
+
+void drawLeftTurnIcon(int x, int y, uint16_t color) {
+	const int tipX = x;
+	const int midY = y + (TURN_ICON_H / 2);
+	const int bodyX = x + 30;
+	tft.fillTriangle(tipX, midY, bodyX, y + 4, bodyX, y + TURN_ICON_H - 4, color);
+	tft.fillRect(bodyX, y + 10, 25, TURN_ICON_H - 20, color);
+}
+
+void drawRightTurnIcon(int x, int y, uint16_t color) {
+	const int tipX = x + TURN_ICON_W - 1;
+	const int midY = y + (TURN_ICON_H / 2);
+	const int bodyX = x + TURN_ICON_W - 31;
+	tft.fillTriangle(tipX, midY, bodyX, y + 4, bodyX, y + TURN_ICON_H - 4, color);
+	tft.fillRect(bodyX - 24, y + 10, 25, TURN_ICON_H - 20, color);
+}
+
+void clearTurnIconAreas(int leftX, int leftY, int rightX, int rightY) {
+	tft.fillRect(leftX - 2, leftY - 2, TURN_ICON_W + 4, TURN_ICON_H + 4, TFT_BLACK);
+	tft.fillRect(rightX - 2, rightY - 2, TURN_ICON_W + 4, TURN_ICON_H + 4, TFT_BLACK);
+}
+
+void clearBeamIconArea(int x, int y) {
+	tft.fillRect(x, y, BEAM_ICON_W, BEAM_ICON_H, TFT_BLACK);
+}
+
+void drawBeamHousing(int x, int y, uint16_t color) {
+	// Outer rounded lamp body
+	tft.fillRoundRect(x + 13, y + 3, 23, 23, 10, color);
+	// Keep the left edge flatter so the silhouette reads as a "D".
+	tft.fillRect(x + 13, y + 3, 4, 23, color);
+
+	// Hollow center cutout
+	tft.fillRoundRect(x + 16, y + 6, 15, 16, 7, TFT_BLACK);
+	// Square the cutout's left edge to preserve the D profile.
+	tft.fillRect(x + 16, y + 6, 3, 16, TFT_BLACK);
+}
+
+void drawHighBeamBars(int x, int y, uint16_t color) {
+	for (int i = 0; i < 4; ++i) {
+		int by = y + 5 + (i * 4);
+		tft.fillRoundRect(x + 1, by, 9, 3, 1, color);
+	}
+}
+
+void drawLowBeamBars(int x, int y, uint16_t color) {
+	for (int i = 0; i < 4; ++i) {
+		int sy = y + 10 + (i * 4);
+		int ey = sy - 2;
+		for (int t = -1; t <= 1; ++t) {
+			tft.drawLine(x + 1, sy + t, x + 10, ey + t, color);
+		}
+		tft.fillCircle(x + 1, sy, 1, color);
+		tft.fillCircle(x + 10, ey, 1, color);
+	}
+}
+
 // Public API ---------------------------------------------------------------
 void TFT_begin() {
 	pinMode(TFT_CS_PIN, OUTPUT);
@@ -366,6 +427,43 @@ void drawMisc(float tempF) {
     tft.print(tempF, 1); tft.print("[F]");
 
 	// Perhaps add IMU data? 
+}
+
+void TFT_drawTurnSignal(bool leftOn, bool rightOn, bool hazardOn) {
+	const int displayWidth = tft.width();
+	const int displayHeight = tft.height();
+	const int leftX = 10;
+	const int leftY = (displayHeight / 2) - (TURN_ICON_H / 2) - 20;
+	const int rightX = displayWidth - TURN_ICON_W - 10;
+	const int rightY = leftY;
+
+	clearTurnIconAreas(leftX, leftY, rightX, rightY);
+
+	// Hazard explicitly enables both indicators.
+	bool showLeft = leftOn || hazardOn;
+	bool showRight = rightOn || hazardOn;
+	if (showLeft) {
+		drawLeftTurnIcon(leftX, leftY, TFT_GREEN);
+	}
+	if (showRight) {
+		drawRightTurnIcon(rightX, rightY, TFT_GREEN);
+	}
+}
+
+void TFT_drawLightIndicator(bool highOn, bool lowOn) {
+	const int displayWidth = tft.width();
+	const int iconX = (displayWidth / 3) + 78;
+	const int iconY = 7;
+
+	clearBeamIconArea(iconX, iconY);
+
+	if (highOn) {
+		drawHighBeamBars(iconX, iconY, TFT_BLUE);
+		drawBeamHousing(iconX, iconY, TFT_BLUE);
+	} else if (lowOn) {
+		drawLowBeamBars(iconX, iconY, TFT_GREEN);
+		drawBeamHousing(iconX, iconY, TFT_GREEN);
+	}
 }
 
 void drawWriteButton(bool pressed) {
