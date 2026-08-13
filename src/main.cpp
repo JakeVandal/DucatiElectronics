@@ -120,7 +120,7 @@ void rightTurnSignalISR() {
   rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
 }
 
-void highBeamIndicatorISR() {
+void IRAM_ATTR highBeamIndicatorISR() {
   bool isActive = readActiveLowPin(HIGH_BEAM_PIN);
   if (isActive && !highBeamInputWasActive) {
     highBeamToggleRequested = true;
