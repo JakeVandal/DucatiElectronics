@@ -91,7 +91,7 @@ void tachISR() {
   tachPulseCount++;
 }
 
-void analogSpeedISR() {
+void IRAM_ATTR analogSpeedISR() {
   unsigned long nowMs = millis();
   lastSpeedPulseMs = speedPulseMs;
   speedPulseMs = nowMs;
