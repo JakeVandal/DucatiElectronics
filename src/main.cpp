@@ -134,7 +134,9 @@ void lowBeamIndicatorISR() {
 
 void hazardIndicatorISR() {
   hazardFlag = readActiveLowPin(HAZARD_PIN);
-void IRAM_ATTR analogSpeedISR() {
+}
+
+  void IRAM_ATTR analogSpeedISR() {
   unsigned long nowMs = millis();
   lastSpeedPulseMs = speedPulseMs;
   speedPulseMs = nowMs;
