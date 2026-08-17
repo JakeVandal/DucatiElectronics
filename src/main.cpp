@@ -47,7 +47,6 @@ volatile boolean irqFlag = false;
 bool writeArmed = false;
 unsigned long lastReadPrintMs = 0;
 unsigned long lastPollMs = 0;
-unsigned long ledOffAtMs = 0;
 unsigned long lastCardHandledMs = 0;
 unsigned long ignitionCardRearmAtMs = 0;
 
@@ -138,11 +137,6 @@ void analogSpeedISR() {
   speedPulseMs = nowMs;
 }
 
-void pulseLed(unsigned long ms) {
-  digitalWrite(STATUS_LED_PIN, HIGH);
-  ledOffAtMs = millis() + ms;
-}
-
 // ISR for IRQ pin interrupt
 void irqHandler() {
   irqFlag = true;
@@ -226,7 +220,6 @@ void printUidAndBlock(byte block, const byte *buffer) {
     Serial.print(' ');
   }
   Serial.println();
-  pulseLed(60);
 }
 
 bool writeBlockWithByte23(byte block) {
@@ -242,10 +235,6 @@ bool writeBlockWithByte23(byte block) {
   MFRC522::StatusCode status = mfrc522.MIFARE_Write(block, data, 16);
   bool success = (status == MFRC522::STATUS_OK);
   Serial.println(success ? "RFID write successful." : "RFID write failed.");
-
-  if (success) {
-    pulseLed(120);
-  }
 
   mfrc522.PCD_StopCrypto1();
   return success;
@@ -326,8 +315,6 @@ void setup() {
   // Initialize analog inputs
   analogReadResolution(12);
 
-  pinMode(STATUS_LED_PIN, OUTPUT);
-  digitalWrite(STATUS_LED_PIN, LOW);
   pinMode(IGNITION_CONTROL_PIN, OUTPUT);
   digitalWrite(IGNITION_CONTROL_PIN, LOW);
 
@@ -454,11 +441,6 @@ void loop() {
   if (millis() - lastMiscUpdate >= MISC_UPDATE_INTERVAL_MS) {
     lastMiscUpdate = millis();
     TFT_Misc_update(CurrentTempF);
-  }
-
-  if (ledOffAtMs != 0 && millis() >= ledOffAtMs) {
-    digitalWrite(STATUS_LED_PIN, LOW);
-    ledOffAtMs = 0;
   }
 
   // Query relay control state first so animation follows the toggle-style blinker logic.

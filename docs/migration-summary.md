@@ -9,8 +9,8 @@ the task brief).
 
 | File | Change |
 |---|---|
-| `lib/pinMap.h` | Full pin renumbering for Teensy 4.1 (Phase 3). Same macro names as the ESP32 version, so no call sites needed renaming — only the numeric values and the peripheral-fixed-pin documentation changed. Added `STATUS_LED_PIN` (new, didn't exist on ESP32). |
-| `src/main.cpp` | Removed `IRAM_ATTR` from 5 ISRs; removed the ESP32-only `#ifndef LED_BUILTIN` fallback block; `Serial1.begin()` and `SPI.begin()` calls dropped their ESP32 GPIO-matrix pin arguments; all `LED_BUILTIN` references switched to `STATUS_LED_PIN`. No control-flow, timing, or state-machine logic touched. |
+| `lib/pinMap.h` | Full pin renumbering for Teensy 4.1 (Phase 3). Same macro names as the ESP32 version, so no call sites needed renaming — only the numeric values and the peripheral-fixed-pin documentation changed. |
+| `src/main.cpp` | Removed `IRAM_ATTR` from 5 ISRs; removed the ESP32-only `#ifndef LED_BUILTIN` fallback block; `Serial1.begin()` and `SPI.begin()` calls dropped their ESP32 GPIO-matrix pin arguments; removed the RFID-activity status LED entirely (`pulseLed()`, `ledOffAtMs`, and both call sites) per your decision below rather than relocating it off pin 13. No other control-flow, timing, or state-machine logic touched. |
 | `src/TFTDisplay.cpp` | Removed `IRAM_ATTR` from `touchISR`; `SPI.begin()` and `Wire.begin()` calls dropped their pin arguments for the same reason as `main.cpp`. No drawing/layout logic touched. |
 | `src/RelayControl.cpp` / `.h` | **Unchanged.** Contains no ESP32-specific calls (pure `digitalRead`/`digitalWrite`/`millis()` logic) — ported by pin-map substitution alone, no direct edits needed. |
 | `platformio.ini` | Retargeted `[env:teensy41]`: `platform = teensy`, `board = teensy41`; removed ESP32 PSRAM/flash-size/partition-table config (no Teensy equivalent); updated `TFT_eSPI` pin build flags to the new pin map; dropped the unused `Adafruit_ILI9341` dependency; pinned `MFRC522` to `>=1.4.11` to avoid a known Teensy-breaking regression in 1.4.10. |
@@ -37,18 +37,20 @@ the task brief).
   not a migration bug.
 - **DHT11 timing:** flagged in Phase 2 as a real, independently-reported
   risk (not hypothetical) — the `adafruit/DHT sensor library`'s
-  cycle-counting approach has documented issues on Teensy 4.x. Ported
-  as-is; needs bench verification (see Open Questions).
+  cycle-counting approach has documented issues on Teensy 4.x. **Confirmed
+  fine on your hardware** — readings are accurate and stable, so the
+  library was kept as-is with no swap to `DHTNEW` needed.
 - **CAN controller:** not applicable — confirmed in Phase 1 that this
   codebase has no CAN bus usage at all, so there's no CAN migration to
   verify.
-- **Status LED behavior:** the RFID-activity LED pulse moved from
-  `LED_BUILTIN` to a dedicated `STATUS_LED_PIN` (33) because Teensy 4.1's
-  `LED_BUILTIN` is pin 13, which this design also uses as shared SPI
-  clock. If you're bench-testing with the Teensy's onboard orange LED
-  before building the dedicated indicator, it'll flicker with SPI traffic
-  instead of pulsing on card reads — cosmetic only, not a functional
-  regression, and documented in `WIRING.md` design note 1.
+- **Status LED behavior:** the RFID-activity LED pulse (`LED_BUILTIN` on
+  the ESP32 branch) was **removed entirely** rather than relocated, per
+  your call — Teensy 4.1's `LED_BUILTIN` is pin 13, which this design
+  also uses as shared SPI clock, so a dedicated pin was proposed and then
+  dropped instead of used. There's no card-read/write visual indicator on
+  Teensy anymore; the onboard orange LED still flickers passively with
+  SPI traffic (cosmetic, not driven by firmware). Documented in
+  `WIRING.md` design note 1.
 - **5V tolerance:** the ESP32-S3 and Teensy 4.1 are both 3.3V-logic parts,
   but Teensy pins have zero 5V tolerance margin (documented, not just
   "don't exceed 3.3V" as informal guidance). The OEM switch inputs
@@ -79,19 +81,26 @@ environment** (`pio run -e teensy41`) and fix any compile errors that
 surface — a manual review, however careful, is not a substitute for an
 actual compiler pass.
 
-## Open questions for you (consolidated from all phases)
+## Open questions — resolved
 
-1. **DHT11 timing on Teensy 4.1** (Phase 2/5) — bench-test the temperature
-   reading; swap to `DHTNEW` only if it actually misbehaves.
-2. **`STATUS_LED_PIN` placement** (Phase 3) — confirm pin 33 is fine, or
-   say if you'd rather free up pin 13 for the onboard LED by moving the
-   shared SPI bus to `SPI1`/`SPI2` instead.
-3. **Full pin map hardware cross-check** (Phase 3/5) — verify
-   `docs/teensy-pinmap.md` against a physical Teensy 4.1 board or the
-   PJRC pinout card before wiring/fabrication.
-4. **`Adafruit_ILI9341` dependency removal** (Phase 1/2) — dropped by
-   default since unused; flag if you actually wanted it kept.
-5. **Compile verification** (this phase) — run `pio run -e teensy41` (or
-   open in Arduino IDE with Teensyduino + board set to Teensy 4.1) and
-   report back any errors; none of this was compiler-checked in this
-   workspace.
+1. **DHT11 timing on Teensy 4.1** (Phase 2/5) — **confirmed on your
+   hardware**: readings are accurate, no misbehavior. Kept
+   `adafruit/DHT sensor library` as-is, no swap needed.
+2. **`STATUS_LED_PIN` placement** (Phase 3) — **removed altogether**, per
+   your call, rather than relocated. `pulseLed()`, its call sites, and the
+   pin reservation were deleted from `main.cpp`/`pinMap.h` in a follow-up
+   pass; the RFID read/write activity indicator no longer exists on this
+   branch. Pin 13 remains solely the shared SPI clock, undriven by
+   firmware, and the onboard LED just flickers passively with SPI traffic.
+3. **Full pin map hardware cross-check** (Phase 3/5) — **confirmed**
+   against the official PJRC "Welcome to Teensy 4.1" pinout card you
+   provided. See `docs/teensy-pinmap.md`'s hardware cross-check section
+   for the specific labels checked (default SPI 10/11/12/13, `Wire`
+   18/19, `Serial1` 0/1, analog ranges, and the pin-13 LED marking). No
+   corrections needed.
+4. **`Adafruit_ILI9341` dependency removal** (Phase 1/2) — **confirmed
+   correct**, already dropped from `platformio.ini`.
+5. **Compile verification** (this phase) — **still outstanding, on you**:
+   run `pio run -e teensy41` (or open in Arduino IDE with Teensyduino,
+   board set to Teensy 4.1) when convenient, and report back any errors.
+   Nothing in this migration has been compiler-checked in this workspace.

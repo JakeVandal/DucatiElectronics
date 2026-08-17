@@ -170,24 +170,16 @@ Not initialized by current firmware — route the footprint only if the IMU is p
 | Left blinker relay | 30 | — |
 | Right blinker relay | 31 | — |
 
-### Status LED
-
-| Signal | Pin | Note |
-|---|---|---|
-| RFID read/write pulse | 33 | dedicated pin, **not** Teensy's `LED_BUILTIN` (13) — see note 1 |
-
 ## Design notes
 
-1. **Pin 13 is both Teensy's onboard LED and this design's SPI clock —
-   the status LED was moved off it.** Teensy 4.1's `LED_BUILTIN` is
-   hardwired to pin 13, which this design also uses as the shared hardware
-   SPI clock for the TFT and MFRC522. Driving pin 13 as a manual
-   digitalWrite LED while the SPI peripheral is actively clocking it out
-   would corrupt in-flight SPI transfers, so the RFID activity LED now
-   uses a dedicated pin (33) instead. If you're bench-testing with the
-   Teensy's built-in orange LED, expect it to flicker along with SPI
-   traffic (normal, cosmetic) rather than pulse on card reads/writes —
-   that pulse now happens on pin 33's LED instead.
+1. **No software-driven status LED.** The ESP32 branch pulsed
+   `LED_BUILTIN` on RFID reads/writes; that feature was dropped rather
+   than moved to a dedicated pin (see `docs/migration-summary.md`).
+   Teensy 4.1's `LED_BUILTIN` is hardwired to pin 13, which this design
+   also uses as the shared hardware SPI clock for the TFT and MFRC522, so
+   firmware never drives it directly — the onboard orange LED will still
+   flicker passively along with SPI traffic, which is normal and
+   harmless, just no longer meaningful as a read/write indicator.
 2. **Power the MCU from the battery directly, not through the ignition
    switch.** The firmware treats `IGNITION_CONTROL_PIN` as an RFID-gated
    immobilizer relay (see `readPICC()` / `bikeIgnitionOn` in `main.cpp`) —

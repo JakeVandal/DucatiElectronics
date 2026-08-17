@@ -34,13 +34,13 @@ CHANGELOG (Teensy 4.1 migration from ESP32-S3):
 - IMU reserved bus moved from a second I2C peripheral at arbitrary GPIOs
   (SDA 18/SCL 17) to Teensy's Wire1 at its fixed pins (SDA 17/SCL 16).
   Still unused/uninitialized by firmware, same as the ESP32 branch.
-- Added STATUS_LED_PIN (33), replacing direct use of `LED_BUILTIN`.
-  Teensy 4.1's `LED_BUILTIN` is pin 13, which is ALSO this project's SPI
-  SCK pin (TFT + MFRC522 share hardware SPI on pins 11/12/13). main.cpp's
-  read/write activity LED must not fight the SPI peripheral for control
-  of pin 13, so it now targets a dedicated pin instead. Flagged in
-  docs/teensy-pinmap.md - this is a genuine hardware constraint, not a
-  style choice.
+- The ESP32 branch's `LED_BUILTIN` RFID-activity pulse was dropped
+  entirely rather than moved to a dedicated pin (per your call - see
+  docs/migration-summary.md). Teensy 4.1's `LED_BUILTIN` is pin 13,
+  which is ALSO this project's SPI SCK pin (TFT + MFRC522 share
+  hardware SPI on pins 11/12/13), so firmware never drives pin 13
+  directly; the onboard LED will still flicker passively with SPI
+  clock activity, which is harmless.
 - All other digital I/O (relays, switch inputs, analog senders, DHT11,
   RFID CS/RST/IRQ, TFT CS/DC/RST/backlight) reassigned to free GPIO in
   the 0-41 range, avoiding the reserved 42-54 block above. Exact numbers
@@ -54,7 +54,7 @@ CHANGELOG (Teensy 4.1 migration from ESP32-S3):
 #define MFRC522_IRQ_PIN 6       // Interrupt pin for MFRC522
 #define MFRC522_MOSI 11         // Hardware SPI MOSI (fixed, shared with TFT)
 #define MFRC522_MISO 12         // Hardware SPI MISO (fixed, shared with TFT)
-#define MFRC522_SCK 13          // Hardware SPI SCK (fixed, shared with TFT) - also Teensy LED_BUILTIN, see STATUS_LED_PIN note above
+#define MFRC522_SCK 13          // Hardware SPI SCK (fixed, shared with TFT) - also Teensy LED_BUILTIN (unused by firmware, see changelog note above)
 
 // GY-521 IMU (MPU6050) - Wire1 (I2C), reserved, not initialized by firmware
 #define GY521_SDA 17            // Wire1 SDA (fixed)
@@ -111,8 +111,3 @@ CHANGELOG (Teensy 4.1 migration from ESP32-S3):
 #define LEFT_BLINKER_RELAY_PIN 30  // Left blinker relay control output
 #define RIGHT_BLINKER_RELAY_PIN 31 // Right blinker relay control output
 #define ANALOG_SPEED_PIN 21        // Speed sensor input (GPIO interrupt on hall pulse)
-
-// Status LED (RFID read/write activity pulse). NOT Teensy's LED_BUILTIN (13) -
-// that pin is this project's SPI SCK, shared by the TFT and MFRC522. See the
-// changelog note above.
-#define STATUS_LED_PIN 33

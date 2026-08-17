@@ -75,29 +75,27 @@ from the `PaulStoffregen/cores`, `PaulStoffregen/SPI`, and
 | Left blinker relay (output) | 30 | — | 20 | digital out |
 | Right blinker relay (output) | 31 | — | 48 | digital out |
 | GY-521/MPU6050 INT | 32 | — | 40 | **defined, unused** |
-| Status LED (RFID read/write pulse) | 33 | PWM-capable (used as plain digital out) | 48 (`LED_BUILTIN`) | **New dedicated pin** — see below |
 | Touch RST | -1 (n/c) | — | -1 (n/c) | unchanged, not connected |
+
+Pin 33 is intentionally unused (was briefly reserved for a dedicated status
+LED, dropped — see design decision 1 below).
 
 ## Design decisions / flags for your review
 
-1. **`LED_BUILTIN` / pin 13 conflict — resolved by adding `STATUS_LED_PIN`.**
-   On the ESP32-S3, the status LED (`LED_BUILTIN`, pin 48) and the shared
-   SPI bus (pins 11/12/13) were unrelated pins. On Teensy 4.1,
-   `LED_BUILTIN` is hardwired to pin 13 — which this project also uses as
-   the shared hardware SPI clock (`SPI` SCK) for the TFT and MFRC522. Since
-   `main.cpp`'s `pulseLed()` calls `digitalWrite(LED_BUILTIN, ...)` from the
-   main loop while SPI transactions are actively happening on that same
-   pin, using pin 13 for the status LED would fight the SPI peripheral for
-   control of the pin and corrupt in-flight SPI transfers. I've added a
-   dedicated `STATUS_LED_PIN` (33) instead of reusing `LED_BUILTIN`, and
-   Phase 4 will change `main.cpp`'s LED calls to target it. This is a
-   genuine hardware constraint the ESP32 branch never had to deal with,
-   not a stylistic change — flagging per your instruction not to silently
-   guess on hardware mappings. If you'd rather free up a different pin and
-   keep using the physical onboard LED at pin 13 by moving the SPI bus to
-   `SPI1`/`SPI2` instead, say so and I'll redo this; I defaulted to the
-   simpler fix (new pin for the LED) since it doesn't touch the SPI bus
-   at all.
+1. **`LED_BUILTIN` / pin 13 conflict — resolved by dropping the status LED
+   feature, not by relocating it.** On the ESP32-S3, the status LED
+   (`LED_BUILTIN`, pin 48) and the shared SPI bus (pins 11/12/13) were
+   unrelated pins. On Teensy 4.1, `LED_BUILTIN` is hardwired to pin 13 —
+   which this project also uses as the shared hardware SPI clock (`SPI`
+   SCK) for the TFT and MFRC522, so driving it manually from `pulseLed()`
+   would fight the SPI peripheral for control of the pin and corrupt
+   in-flight SPI transfers. I initially proposed a dedicated
+   `STATUS_LED_PIN` (33) instead of reusing `LED_BUILTIN`; you confirmed
+   removing the RFID-activity LED feature entirely rather than relocating
+   it, so Phase 4 (updated) deleted `pulseLed()`, its call sites, and the
+   pin reservation. The onboard LED still flickers passively with SPI
+   traffic since it's electrically tied to pin 13, but nothing in
+   firmware drives it on purpose anymore.
 2. **Reserved IMU bus moved from a bespoke I2C1 to Teensy's `Wire1`.** Same
    as the ESP32 branch, this stays uninitialized (no `Wire1.begin()` call)
    — the reservation is carried forward, not activated.
@@ -110,10 +108,14 @@ from the `PaulStoffregen/cores`, `PaulStoffregen/SPI`, and
    requirement forced a specific number for the relays, switch inputs,
    DHT11, or RFID/TFT control lines the way SPI/I2C/UART/ADC did.
 
-## Open question for you
+## Hardware cross-check — confirmed against the official PJRC pinout card
 
-- **Confirm before fabrication:** this pin map hasn't been checked against
-  a real Teensy 4.1 board in hand — please cross-reference against the
-  physical board (or the PJRC pinout card) before wiring, the same way
-  you'd want any AI-produced hardware pin assignment double-checked.
-  Phase 5 repeats this as a formal verification step.
+You provided the official "Welcome to Teensy 4.1" pinout card for
+verification. It confirms every fixed-peripheral assumption this pin map
+relies on: the default hardware SPI's `CS`/`MOSI`/`MISO`/`SCK` labels sit
+exactly on pins 10/11/12/13 as used here; `SDA`/`SCL` sit on 18/19 for the
+default `Wire` bus; pins 0/1 are labeled `RX1`/`TX1`; the analog range
+labels (`A0`-`A9` on 14-23, `A10`-`A13` on 24-27, `A14`-`A17` on 38-41)
+match; and pin 13 carries the card's onboard-LED marking, confirming the
+SPI-clock/`LED_BUILTIN` conflict that drove the decision above to drop the
+status-LED feature rather than relocate it. No corrections needed.
