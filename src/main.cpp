@@ -18,10 +18,6 @@ Version: 1.0
 #include "RelayControl.h"
 #include <DHT.h>
 
-#ifndef LED_BUILTIN
-#define LED_BUILTIN 48
-#endif
-
 // Initialize the RFID reader
 MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
 MFRC522::MIFARE_Key key;
@@ -112,15 +108,15 @@ void tachISR() {
   tachPulseCount++;
 }
 
-void IRAM_ATTR leftTurnSignalISR() {
+void leftTurnSignalISR() {
   leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
 }
 
-void IRAM_ATTR rightTurnSignalISR() {
+void rightTurnSignalISR() {
   rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
 }
 
-void IRAM_ATTR highBeamIndicatorISR() {
+void highBeamIndicatorISR() {
   bool isActive = readActiveLowPin(HIGH_BEAM_PIN);
   if (isActive && !highBeamInputWasActive) {
     highBeamToggleRequested = true;
@@ -136,19 +132,19 @@ void hazardIndicatorISR() {
   hazardFlag = readActiveLowPin(HAZARD_PIN);
 }
 
-  void IRAM_ATTR analogSpeedISR() {
+void analogSpeedISR() {
   unsigned long nowMs = millis();
   lastSpeedPulseMs = speedPulseMs;
   speedPulseMs = nowMs;
 }
 
 void pulseLed(unsigned long ms) {
-  digitalWrite(LED_BUILTIN, HIGH);
+  digitalWrite(STATUS_LED_PIN, HIGH);
   ledOffAtMs = millis() + ms;
 }
 
 // ISR for IRQ pin interrupt
-void IRAM_ATTR irqHandler() {
+void irqHandler() {
   irqFlag = true;
 }
 
@@ -325,13 +321,13 @@ void setup() {
 
   Serial.println("Ducati Electronics System Starting...");
 
-  Serial1.begin(GPSBaud, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  Serial1.begin(GPSBaud); // GPS_RX_PIN/GPS_TX_PIN in pinMap.h are fixed by hardware on Teensy 4.1, not selectable here.
 
   // Initialize analog inputs
   analogReadResolution(12);
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, LOW);
   pinMode(IGNITION_CONTROL_PIN, OUTPUT);
   digitalWrite(IGNITION_CONTROL_PIN, LOW);
 
@@ -343,7 +339,7 @@ void setup() {
   digitalWrite(MFRC522_CS_PIN, HIGH);
   pinMode(TFT_CS_PIN, OUTPUT);
   digitalWrite(TFT_CS_PIN, HIGH);
-  SPI.begin(MFRC522_SCK, MFRC522_MISO, MFRC522_MOSI, -1);
+  SPI.begin(); // MFRC522_SCK/MISO/MOSI in pinMap.h are fixed by hardware on Teensy 4.1, not selectable here.
 
   // Initialize TFT first so the shared SPI bus is stable before the RFID reader starts using it.
   dht.begin();
@@ -461,7 +457,7 @@ void loop() {
   }
 
   if (ledOffAtMs != 0 && millis() >= ledOffAtMs) {
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(STATUS_LED_PIN, LOW);
     ledOffAtMs = 0;
   }
 

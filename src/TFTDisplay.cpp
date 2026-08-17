@@ -16,7 +16,7 @@ TFT_eSPI tft = TFT_eSPI();
 
 // Touch IRQ flag and ISR
 volatile bool touchIRQ = false;
-void IRAM_ATTR touchISR() {
+void touchISR() {
 	touchIRQ = true;
 }
 
@@ -124,14 +124,15 @@ void TFT_begin() {
 	digitalWrite(TFT_RST_PIN, HIGH);
 	delay(50);
 
-	SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, -1);
+	SPI.begin(); // TFT_SCK/MISO/MOSI in pinMap.h are fixed by hardware on Teensy 4.1, not selectable here.
 	tft.init();
 	tft.setRotation(1);
 	pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
 	analogWrite(TFT_BACKLIGHT_PIN, 255);
 	tft.fillScreen(TFT_BLACK);
-	// Init I2C for touch controller
-	Wire.begin(TOUCH_SDA, TOUCH_SCL);
+	// Init I2C for touch controller. TOUCH_SDA/TOUCH_SCL in pinMap.h are
+	// fixed by hardware on Teensy 4.1 (Wire = SDA 18 / SCL 19), not selectable here.
+	Wire.begin();
 	Wire.setClock(400000);
 	// Configure touch interrupt pin
 	pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
