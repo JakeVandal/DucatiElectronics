@@ -52,15 +52,16 @@ bool isButtonPressed(int pin) {
 
 // Helper function to detect a single button press (edge detection)
 bool buttonPressDetected(int pin) {
-    static unsigned long lastDetectTime[52] = {0};
-    
-    if (isButtonPressed(pin)) {
-        if ((millis() - lastDetectTime[pin]) > 200) { // Must wait 200ms between presses
-            lastDetectTime[pin] = millis();
-            return true;
-        }
+    static bool wasPressed[52] = {false};
+
+    if (pin < 0 || pin >= (int)(sizeof(wasPressed) / sizeof(wasPressed[0]))) {
+        return false;
     }
-    return false;
+
+    bool pressed = isButtonPressed(pin);
+    bool detected = pressed && !wasPressed[pin];
+    wasPressed[pin] = pressed;
+    return detected;
 }
 
 // Initialize relay control pins
