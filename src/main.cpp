@@ -3,7 +3,7 @@ This is the main file for the Ducati Electronics project. It initializes the RFI
 and contains the main loop for reading RFID tags and controlling the LEDs based on the tag's status. The program uses 
 the MFRC522 library for interfacing with the RFID reader and SPI communication.
 
-Last Updated: 6/2/2026
+Last Updated: 8/11/2026
 
 Version: 1.0
 
@@ -12,15 +12,16 @@ Version: 1.0
 #include <MFRC522.h>
 #include <SPI.h>
 #include "../lib/pinMap.h"
-#include "piccWriter.h"
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
 #include "TFTDisplay.h"
+#include "RelayControl.h"
 #include <DHT.h>
 
 // Initialize the RFID reader
 MFRC522 mfrc522(MFRC522_CS_PIN, MFRC522_RST_PIN);   // Create MFRC522 instance.
 MFRC522::MIFARE_Key key;
+static const byte RFID_BLOCK = 4;
 
 // Initialize GPS
 TinyGPSPlus gps;
@@ -43,6 +44,11 @@ int CurrentGear = 0;
 
 // Interrupt flag for IRQ pin
 volatile boolean irqFlag = false;
+bool writeArmed = false;
+unsigned long lastReadPrintMs = 0;
+unsigned long lastPollMs = 0;
+unsigned long lastCardHandledMs = 0;
+unsigned long ignitionCardRearmAtMs = 0;
 
 // Tachometer pulse counting
 volatile unsigned long tachPulseCount = 0;
@@ -55,11 +61,80 @@ volatile boolean bikeIgnitionOn = false;
 unsigned long ignitionOnMillis = 0;
 bool ignitionTimerActive = false;
 const unsigned long IGNITION_RPM_TIMEOUT_MS = 60000; // 60 seconds
+const unsigned long RFID_READ_COOLDOWN_MS = 1000;
+const unsigned long IGNITION_CARD_REARM_MS = 3000;
 const int RPM_THRESHOLD = 300;
+
+// Display update timing
+static unsigned long lastTachUpdate = 0;
+static unsigned long lastFuelUpdate = 0;
+static unsigned long lastMiscUpdate = 0;
+const unsigned long TACH_UPDATE_INTERVAL_MS = 300;
+const unsigned long FUEL_UPDATE_INTERVAL_MS = 5000; // 5 seconds
+const unsigned long MISC_UPDATE_INTERVAL_MS = 3000; // 3 seconds
+
+static bool lastTurnSignalLeft = false;
+static bool lastTurnSignalRight = false;
+static volatile bool leftTurnSignalFlag = false;
+static volatile bool rightTurnSignalFlag = false;
+static bool highBeamFlag = false;
+static bool lowBeamFlag = false;
+static volatile bool hazardFlag = false;
+static bool lastHighBeam = false;
+static bool lastLowBeam = false;
+static bool lastHazard = false;
+volatile bool highBeamToggleRequested = false;
+volatile bool highBeamInputWasActive = false;
+const unsigned long BLINKER_INTERVAL_MS = 500; // 500 ms for blinker toggle
+static unsigned long lastBlinkerToggleMs = 0;
+static bool blinkerOn = false;
+
+static inline bool readActiveLowPin(uint8_t pin) {
+  return digitalRead(pin) == LOW;
+}
+
+// Speedometer variables (hall sensor + 6 magnets)
+static const float WHEEL_CIRCUMFERENCE_CM = 210.0f; // Tune to measured tire rollout.
+static const int SPEED_PULSES_PER_REV = 6;          // 6 equally spaced magnets.
+static const unsigned long SPEED_STALE_TIMEOUT_MS = 1500;
+volatile unsigned long speedPulseMs = 0;
+volatile unsigned long lastSpeedPulseMs = 0;
+float AnalogSpeedMph = 0.0f;
+unsigned long lastProcessedSpeedPulseMs = 0;
 
 // ISR for tachometer pulse
 void tachISR() {
   tachPulseCount++;
+}
+
+void leftTurnSignalISR() {
+  leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
+}
+
+void rightTurnSignalISR() {
+  rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
+}
+
+void highBeamIndicatorISR() {
+  bool isActive = readActiveLowPin(HIGH_BEAM_PIN);
+  if (isActive && !highBeamInputWasActive) {
+    highBeamToggleRequested = true;
+  }
+  highBeamInputWasActive = isActive;
+}
+
+void lowBeamIndicatorISR() {
+  // Low beam is derived from high-beam mode: on when high beam is off.
+}
+
+void hazardIndicatorISR() {
+  hazardFlag = readActiveLowPin(HAZARD_PIN);
+}
+
+void analogSpeedISR() {
+  unsigned long nowMs = millis();
+  lastSpeedPulseMs = speedPulseMs;
+  speedPulseMs = nowMs;
 }
 
 // ISR for IRQ pin interrupt
@@ -91,62 +166,174 @@ int getGearFromVoltage(int rawValue) {
   return 6;
 }
 
-// Function to read PICC from MFRC522 and check if it reads 0x23
-boolean readPICC() {
-  // Check if interrupt flag is set
-  if (!irqFlag) {
+void clearRfidIrqFlags() {
+  mfrc522.PCD_WriteRegister(MFRC522::ComIrqReg, 0x7F);
+}
+
+void enableRfidIrq() {
+  mfrc522.PCD_WriteRegister(MFRC522::ComIEnReg, 0xA0);
+  clearRfidIrqFlags();
+}
+
+bool authBlock(byte block) {
+  MFRC522::StatusCode status = mfrc522.PCD_Authenticate(
+      MFRC522::PICC_CMD_MF_AUTH_KEY_A,
+      block,
+      &key,
+      &(mfrc522.uid));
+
+  return status == MFRC522::STATUS_OK;
+}
+
+bool readBlock(byte block, byte *buffer, byte &size) {
+  if (!authBlock(block)) {
+    Serial.println("RFID authentication failed.");
     return false;
   }
 
-  irqFlag = false;
-
-  // Look for new cards
-  if (!mfrc522.PICC_IsNewCardPresent()) {
+  MFRC522::StatusCode status = mfrc522.MIFARE_Read(block, buffer, &size);
+  if (status != MFRC522::STATUS_OK) {
+    Serial.println("RFID read failed.");
+    mfrc522.PCD_StopCrypto1();
     return false;
   }
 
-  // Select one of the cards
-  if (!mfrc522.PICC_ReadCardSerial()) {
-    return false;
-  }
+  return true;
+}
 
-  // Print the UID of the card
-  Serial.print("Card UID: ");
+void printUidAndBlock(byte block, const byte *buffer) {
+  Serial.print("UID:");
   for (byte i = 0; i < mfrc522.uid.size; i++) {
     Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
     Serial.print(mfrc522.uid.uidByte[i], HEX);
   }
   Serial.println();
 
-  // Check if first byte of UID is 0x23
-  boolean cardMatch = (mfrc522.uid.uidByte[0] == 0x23);
-
-  // Halt the PICC
-  mfrc522.PICC_HaltA();
-  // Stop encryption on PCD
-  mfrc522.PCD_StopCrypto1();
-
-  return cardMatch;
+  Serial.print("Block ");
+  Serial.print(block);
+  Serial.print(" hex: ");
+  for (byte i = 0; i < 16; i++) {
+    if (buffer[i] < 0x10) {
+      Serial.print('0');
+    }
+    Serial.print(buffer[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
 }
 
+bool writeBlockWithByte23(byte block) {
+  if (!authBlock(block)) {
+    Serial.println("RFID authentication failed.");
+    return false;
+  }
+
+  byte data[16];
+  memset(data, 0x00, sizeof(data));
+  data[0] = 0x23;
+
+  MFRC522::StatusCode status = mfrc522.MIFARE_Write(block, data, 16);
+  bool success = (status == MFRC522::STATUS_OK);
+  Serial.println(success ? "RFID write successful." : "RFID write failed.");
+
+  mfrc522.PCD_StopCrypto1();
+  return success;
+}
+
+// Function to read PICC block data from MFRC522 and check if it contains 0x23.
+boolean readPICC() {
+  if (millis() - lastCardHandledMs < RFID_READ_COOLDOWN_MS) {
+    if (irqFlag) {
+      noInterrupts();
+      irqFlag = false;
+      interrupts();
+      clearRfidIrqFlags();
+    }
+    return false;
+  }
+
+  bool triggeredByIrq = irqFlag;
+  if (triggeredByIrq) {
+    noInterrupts();
+    irqFlag = false;
+    interrupts();
+  }
+
+  if (!triggeredByIrq) {
+    if (millis() - lastPollMs < 120) {
+      return false;
+    }
+    lastPollMs = millis();
+  }
+
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return false;
+  }
+
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return false;
+  }
+
+  bool writeSuccess = false;
+  if (writeArmed) {
+    writeSuccess = writeBlockWithByte23(RFID_BLOCK);
+    writeArmed = false;
+    TFT_setWriteSuccess(writeSuccess);
+  }
+
+  byte buffer[18];
+  byte size = sizeof(buffer);
+  bool cardMatch = false;
+  if (readBlock(RFID_BLOCK, buffer, size)) {
+    cardMatch = (buffer[0] == 0x23);
+    lastCardHandledMs = millis();
+
+    if (millis() - lastReadPrintMs >= 1000) {
+      printUidAndBlock(RFID_BLOCK, buffer);
+      lastReadPrintMs = millis();
+    }
+
+    mfrc522.PCD_StopCrypto1();
+  }
+
+  mfrc522.PICC_HaltA();
+  clearRfidIrqFlags();
+  return cardMatch;
+}
 
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
-  while (!Serial); // Wait for serial port to connect. Needed for native USB
+  while (!Serial && millis() < 2000) {
+    delay(10);
+  }
 
-  Serial5.begin(GPSBaud);
+  Serial.println("Ducati Electronics System Starting...");
+
+  Serial1.begin(GPSBaud); // GPS_RX_PIN/GPS_TX_PIN in pinMap.h are fixed by hardware on Teensy 4.1, not selectable here.
 
   // Initialize analog inputs
   analogReadResolution(12);
 
-  // Initialize SPI communication
-  SPI.begin();      // Init SPI bus
-  mfrc522.PCD_Init();   // Init MFRC522 card
+  pinMode(IGNITION_CONTROL_PIN, OUTPUT);
+  digitalWrite(IGNITION_CONTROL_PIN, LOW);
 
-  // Initialize TFT and sensors
+  pinMode(ANALOG_SPEED_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(ANALOG_SPEED_PIN), analogSpeedISR, RISING);
+
+  // Initialize shared SPI bus once and keep both chip selects deasserted.
+  pinMode(MFRC522_CS_PIN, OUTPUT);
+  digitalWrite(MFRC522_CS_PIN, HIGH);
+  pinMode(TFT_CS_PIN, OUTPUT);
+  digitalWrite(TFT_CS_PIN, HIGH);
+  SPI.begin(); // MFRC522_SCK/MISO/MOSI in pinMap.h are fixed by hardware on Teensy 4.1, not selectable here.
+
+  // Initialize TFT first so the shared SPI bus is stable before the RFID reader starts using it.
   dht.begin();
   TFT_begin();
+
+  mfrc522.PCD_Init();   // Init MFRC522 card
+  mfrc522.PCD_AntennaOn();
 
   // Set the key for authentication (default key for MIFARE cards)
   for (byte i = 0; i < 6; i++) {
@@ -155,19 +342,50 @@ void setup() {
 
   // Attach interrupt handler to IRQ pin
   pinMode(MFRC522_IRQ_PIN, INPUT_PULLUP);
+  enableRfidIrq();
   attachInterrupt(digitalPinToInterrupt(MFRC522_IRQ_PIN), irqHandler, FALLING);
 
   // Tachometer input
   pinMode(TACH_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(TACH_PIN), tachISR, RISING);
 
+  pinMode(TURN_SIGNAL_LEFT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TURN_SIGNAL_LEFT_PIN), leftTurnSignalISR, CHANGE);
+
+  pinMode(TURN_SIGNAL_RIGHT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TURN_SIGNAL_RIGHT_PIN), rightTurnSignalISR, CHANGE);
+
+  pinMode(HIGH_BEAM_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(HIGH_BEAM_PIN), highBeamIndicatorISR, CHANGE);
+
+  pinMode(LOW_BEAM_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(LOW_BEAM_PIN), lowBeamIndicatorISR, CHANGE);
+
+  pinMode(HAZARD_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(HAZARD_PIN), hazardIndicatorISR, CHANGE);
+
+  // Prime indicator states from current input levels before any first interrupt.
+  leftTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_LEFT_PIN);
+  rightTurnSignalFlag = readActiveLowPin(TURN_SIGNAL_RIGHT_PIN);
+  highBeamInputWasActive = readActiveLowPin(HIGH_BEAM_PIN);
+  highBeamFlag = false;
+  lowBeamFlag = true;
+  hazardFlag = readActiveLowPin(HAZARD_PIN);
+
+  // Force one initial light draw in loop so low beam appears at startup.
+  lastHighBeam = !highBeamFlag;
+  lastLowBeam = !lowBeamFlag;
+
+  // Initialize relay control system
+  relayControl_init();
+
   Serial.println("RFID reader initialized. Waiting for a card...");
 }
 
 void loop() {
   // Process GPS serial data
-  while (Serial5.available() > 0) {
-    gps.encode(Serial5.read());
+  while (Serial1.available() > 0) {
+    gps.encode(Serial1.read());
   }
 
   if (gps.location.isUpdated() && gps.location.isValid()) {
@@ -199,42 +417,112 @@ void loop() {
   int rawGear = analogRead(GEAR_VOLTAGE_PIN);
   CurrentGear = getGearFromVoltage(rawGear);
 
-  // Update RPM once per second based on pulse count. Assumes 1 pulse per rev.
+  // Update RPM once per 300ms based on pulse count. Assumes 1 pulse per rev.
   static unsigned long lastRPMMillis = 0;
-  if (millis() - lastRPMMillis >= 1000) {
+  unsigned long currentMillis = millis();
+  unsigned long rpmElapsedMs = currentMillis - lastRPMMillis;
+  if (rpmElapsedMs >= 300) {
     noInterrupts();
     unsigned long pulses = tachPulseCount;
     tachPulseCount = 0;
     interrupts();
-    RPMValue = pulses * 60; // pulses per second -> RPM
-    lastRPMMillis += 1000;
+    RPMValue = (pulses * 60000UL) / rpmElapsedMs;
+    lastRPMMillis = currentMillis;
   }
 
-  TFT_update(RPMValue, GPSSpeedMph, CurrentTempF, CurrentFuelLevel, CurrentGear);
+  TFT_handleTouch();
 
+  if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
+    lastTachUpdate = millis();
+    TFT_Tach_update(RPMValue, AnalogSpeedMph, CurrentGear);
+  }
+
+  if (millis() - lastFuelUpdate >= FUEL_UPDATE_INTERVAL_MS) {
+    lastFuelUpdate = millis();
+    TFT_Fuel_update(CurrentFuelLevel);
+  }
+
+  if (millis() - lastMiscUpdate >= MISC_UPDATE_INTERVAL_MS) {
+    lastMiscUpdate = millis();
+    TFT_Misc_update(CurrentTempF);
+  }
+
+  // Query relay control state first so animation follows the toggle-style blinker logic.
+  bool leftBlinkerState = relayControl_getLeftBlinkerActive();
+  bool rightBlinkerState = relayControl_getRightBlinkerActive();
+
+  bool anyBlinkerActive = leftBlinkerState || rightBlinkerState || hazardFlag;
+  if (anyBlinkerActive && millis() - lastBlinkerToggleMs >= BLINKER_INTERVAL_MS) {
+    lastBlinkerToggleMs = millis();
+    blinkerOn = !blinkerOn;
+  } else if (!anyBlinkerActive) {
+    blinkerOn = false;
+  }
+  // Create blinking animation for active blinkers
+  bool drawLeftSignal = blinkerOn && leftBlinkerState;
+  bool drawRightSignal = blinkerOn && rightBlinkerState;
+  bool drawHazard = hazardFlag && blinkerOn;
+  if (drawLeftSignal != lastTurnSignalLeft || drawRightSignal != lastTurnSignalRight || drawHazard != lastHazard) {
+    lastTurnSignalLeft = drawLeftSignal;
+    lastTurnSignalRight = drawRightSignal;
+    lastHazard = drawHazard;
+    TFT_drawTurnSignal(drawLeftSignal, drawRightSignal, drawHazard);
+  }
+
+  bool toggleHighBeam = false;
+  noInterrupts();
+  if (highBeamToggleRequested) {
+    highBeamToggleRequested = false;
+    toggleHighBeam = true;
+  }
+  interrupts();
+
+  if (toggleHighBeam) {
+    highBeamFlag = !highBeamFlag;
+    lowBeamFlag = !highBeamFlag;
+  }
+
+  // Query actual relay control state for display updates
+  // This ensures display always shows what the relays are actually doing
+  bool effectiveHighBeam = relayControl_getHighBeamActive();
+  bool effectiveLowBeam = relayControl_getLowBeamActive();
+  if (effectiveHighBeam != lastHighBeam || effectiveLowBeam != lastLowBeam) {
+    lastHighBeam = effectiveHighBeam;
+    lastLowBeam = effectiveLowBeam;
+    TFT_drawLightIndicator(effectiveHighBeam, effectiveLowBeam);
+  }
+  
   // Handle touch-triggered RFID write requests
   if (TFT_takeWriteRequest()) {
     Serial.println("TFT requested RFID write");
-    // Example: write 0x23 to card
-    boolean result = writePICC(0x23);
-    TFT_setWriteSuccess(result);
+    writeArmed = true;
   }
 
   // Call readPICC to check for card (interrupt-driven)
   boolean cardFound = readPICC();
 
-  // Bike turn on scenario: if card with 0x23 is detected while ignition is off, enable ignition and start watchdog timer
-  if (cardFound && !bikeIgnitionOn) {
-    Serial.println("Card with 0x23 detected!");
+  if (cardFound) {
+    if (static_cast<int32_t>(millis() - ignitionCardRearmAtMs) < 0) {
+      cardFound = false;
+    } else if (!bikeIgnitionOn) {
+      Serial.println("Card with 0x23 detected!");
 
-    digitalWrite(IGNITION_CONTROL_PIN, HIGH); // turn on ignition relay
-    bikeIgnitionOn = true;
+      digitalWrite(IGNITION_CONTROL_PIN, HIGH); // turn on ignition relay
+      bikeIgnitionOn = true;
+      ignitionCardRearmAtMs = millis() + IGNITION_CARD_REARM_MS;
 
-    // Start the ignition-watchdog timer: engine must reach RPM threshold
-    // within IGNITION_RPM_TIMEOUT_MS or ignition will be cut.
-    ignitionOnMillis = millis();
-    ignitionTimerActive = true;
-    Serial.println("Ignition enabled; awaiting engine start (RPM>=300) for 60s.");
+      // Start the ignition-watchdog timer: engine must reach RPM threshold
+      // within IGNITION_RPM_TIMEOUT_MS or ignition will be cut.
+      ignitionOnMillis = millis();
+      ignitionTimerActive = true;
+      Serial.println("Ignition enabled; awaiting engine start (RPM>=300) for 60s.");
+    } else {
+      digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
+      bikeIgnitionOn = false;
+      ignitionTimerActive = false;
+      ignitionCardRearmAtMs = millis() + IGNITION_CARD_REARM_MS;
+      Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
+    }
   }
 
   // Safety watchdog: if ignition enabled but RPM stays below threshold
@@ -252,10 +540,30 @@ void loop() {
     }
   }
 
-  // Bike turn off scenario: if card is detected while ignition is on, cut ignition immediately
-  if (cardFound && bikeIgnitionOn) {
-    digitalWrite(IGNITION_CONTROL_PIN, LOW); // turn off ignition relay
-    bikeIgnitionOn = false;
-    Serial.println("Card with 0x23 detected while ignition on; cutting ignition.");
+  // Update relay control (headlights and blinkers)
+  relayControl_update();
+  
+  // Convert hall pulses to mph: each pulse is 1/SPEED_PULSES_PER_REV of a wheel revolution.
+  unsigned long latestPulseMs;
+  unsigned long previousPulseMs;
+  noInterrupts();
+  latestPulseMs = speedPulseMs;
+  previousPulseMs = lastSpeedPulseMs;
+  interrupts();
+
+  if (latestPulseMs != lastProcessedSpeedPulseMs && previousPulseMs > 0 && latestPulseMs > previousPulseMs) {
+    unsigned long pulseDeltaMs = latestPulseMs - previousPulseMs;
+    const float milesPerRev = WHEEL_CIRCUMFERENCE_CM / 160934.4f;
+    const float pulsePeriodHours = (static_cast<float>(pulseDeltaMs) * static_cast<float>(SPEED_PULSES_PER_REV)) / 3600000.0f;
+    float instantMph = milesPerRev / pulsePeriodHours;
+
+    // Simple low-pass filter for a stable readout.
+    AnalogSpeedMph = (AnalogSpeedMph * 0.65f) + (instantMph * 0.35f);
+    lastProcessedSpeedPulseMs = latestPulseMs;
+  }
+
+  // If pulses stop, bring displayed speed to zero.
+  if (latestPulseMs == 0 || (millis() - latestPulseMs) > SPEED_STALE_TIMEOUT_MS) {
+    AnalogSpeedMph = 0.0f;
   }
 }

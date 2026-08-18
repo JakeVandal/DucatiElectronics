@@ -19,9 +19,9 @@ Features:
 -> Voltage based fuel level gauge
 
 Communications:
-MFRC522 -> SPI (SPI0)
-GY-521 -> I2C (I2C0)
+MFRC522 -> SPI
+GY-521 -> I2C
 DHT11 -> One-Wire
-GT-U7 -> UART (UART5)
-TFT Display -> SPI (SPI1)
-TFT Capacitive Touch -> I2C (I2C1)
+GT-U7 -> UART
+TFT Display -> SPI
+TFT Capacitive Touch -> I2C
