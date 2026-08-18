@@ -8,6 +8,7 @@
 
 void TFT_begin();
 void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int gear);
+void TFT_handleTouch();
 void TFT_Tach_update(int rpm, float gpsSpeedMph, int gear);
 void TFT_Fuel_update(float fuelLevel);
 void TFT_Misc_update(float tempF);

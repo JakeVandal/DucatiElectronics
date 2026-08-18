@@ -159,6 +159,9 @@ void TFT_update(int rpm, float gpsSpeedMph, float tempF, float fuelLevel, int ge
 		drawRFIDWriterPage();
 	}
 
+}
+
+void TFT_handleTouch() {
 	// If touch interrupt fired, read touch controller once and dispatch
 	if (touchIRQ) {
 		touchIRQ = false;

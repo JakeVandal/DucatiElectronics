@@ -430,6 +430,8 @@ void loop() {
     lastRPMMillis = currentMillis;
   }
 
+  TFT_handleTouch();
+
   if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
     lastTachUpdate = millis();
     TFT_Tach_update(RPMValue, AnalogSpeedMph, CurrentGear);
