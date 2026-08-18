@@ -127,18 +127,14 @@ void relayControl_update() {
         blinkerState = !blinkerState; // Toggle blink state
     }
 
-    // Apply blink state to active blinkers
-    if (leftBlinkerActive) {
-        digitalWrite(LEFT_BLINKER_RELAY_PIN, blinkerState ? HIGH : LOW);
-    } else {
-        digitalWrite(LEFT_BLINKER_RELAY_PIN, LOW);
-    }
-
-    if (rightBlinkerActive) {
-        digitalWrite(RIGHT_BLINKER_RELAY_PIN, blinkerState ? HIGH : LOW);
-    } else {
-        digitalWrite(RIGHT_BLINKER_RELAY_PIN, LOW);
-    }
+    // Apply blink state to active blinkers; hazard drives both sides.
+    const bool hazardActive = digitalRead(HAZARD_PIN) == LOW;
+    digitalWrite(
+        LEFT_BLINKER_RELAY_PIN,
+        ((leftBlinkerActive || hazardActive) && blinkerState) ? HIGH : LOW);
+    digitalWrite(
+        RIGHT_BLINKER_RELAY_PIN,
+        ((rightBlinkerActive || hazardActive) && blinkerState) ? HIGH : LOW);
 }
 
 // State getter functions - allow main.cpp to query relay control state
