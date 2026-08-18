@@ -419,13 +419,15 @@ void loop() {
 
   // Update RPM once per 300ms based on pulse count. Assumes 1 pulse per rev.
   static unsigned long lastRPMMillis = 0;
-  if (millis() - lastRPMMillis >= 300) {
+  unsigned long currentMillis = millis();
+  unsigned long rpmElapsedMs = currentMillis - lastRPMMillis;
+  if (rpmElapsedMs >= 300) {
     noInterrupts();
     unsigned long pulses = tachPulseCount;
     tachPulseCount = 0;
     interrupts();
-    RPMValue = pulses * 60; // pulses per second -> RPM
-    lastRPMMillis += 300;
+    RPMValue = (pulses * 60000UL) / rpmElapsedMs;
+    lastRPMMillis = currentMillis;
   }
 
   if (millis() - lastTachUpdate >= TACH_UPDATE_INTERVAL_MS) {
