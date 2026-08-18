@@ -500,7 +500,7 @@ void loop() {
   boolean cardFound = readPICC();
 
   if (cardFound) {
-    if (millis() < ignitionCardRearmAtMs) {
+    if (static_cast<int32_t>(millis() - ignitionCardRearmAtMs) < 0) {
       cardFound = false;
     } else if (!bikeIgnitionOn) {
       Serial.println("Card with 0x23 detected!");
